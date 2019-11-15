@@ -22,12 +22,6 @@ def allocate(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
         for io in node.outputs.values():
             if io.kind == "pointer":
                 alloc_map[io.name] = np.ndarray(io.shape)
-
-        # iterate through all inputs and allocate storage
-        # based upon shape if they are of kind dynamic
-        #for io in node.inputs.values():
-        #    if io.kind == "dynamic":
-        #        alloc_map[io.name] = np.ndarray(io.shape)
     return
 
 
@@ -80,8 +74,27 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             for batch_id in range(batches):
                 for gnode in nx.bfs_tree(graph, 0).nodes():
                     logging.log(logging.INFO, "execute node: {}".format(gnode))
+
                     node = graph.nodes[gnode]["node"]
-                    ptasks.spawn(placement=pcpu.cpu(0))(node.fn)
+
+                    deps = []
+                    #get parents and get children
+                    for gparent in graph.predecessors(gnode):
+                        lto = graph.nodes[gparent]["node"].last_task_obj
+                        if lto:
+                            deps.append(lto)
+
+                    for gchild in graph.successors(gnode):
+                        lto = graph.nodes[gchild]["node"].last_task_obj
+                        if lto:
+                            deps.append(lto)
+
+
+                    node.last_task_obj = ptasks.spawn(placement=pcpu.cpu(0), dependencies=deps)(node.fn)
+
+                    logging.log(logging.INFO, "---{}---".format(node.operator))
+                    logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
+                    logging.log(logging.INFO, "deps {}".format(deps))
 
 
     return fn

@@ -92,7 +92,7 @@ def echo_idx(start_idx, end_idx):
 def echo_store(arr):
     logging.log(logging.INFO, f"stored: {arr}")
 
-config = Config(echo_store, echo_idx, 4, 8)
+config = Config(echo_store, echo_idx, 4, 4*1000)
 
 print(amap)
 debug_print_graph(graph)

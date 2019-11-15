@@ -11,7 +11,7 @@ class Node:
         self.fn = None
         self.device_type = None
         self.device_id = None
-        self.task_id = None
+        self.last_task_obj = None
 
         self.instance_id = instance_id
 
