@@ -7,11 +7,28 @@ from typing import Dict, Callable
 
 import parla
 from parla import cpu as pcpu
+from parla import cuda as pcuda
 from parla import tasks as ptasks
+from parla import array as parray
+
+import cupy
 
 from node import Node
 import kernels
 from config import Config
+
+
+def place_n_opt(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
+    for gnode in graph.nodes:
+        node = graph.nodes[gnode]["node"]
+        if (node.operator == "add" or node.operator == "copy"):
+            node.device_type = "gpu"
+            node.device_id = 0
+        else:
+            node.device_type = "cpu"
+            node.device_id = 0
+    return
+
 
 def allocate(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
     for gnode in graph.nodes:
@@ -19,18 +36,34 @@ def allocate(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
 
         # iterate through all outputs and allocate storage
         # based upon shape
-        for io in node.outputs.values():
-            if io.kind == "pointer":
-                alloc_map[io.name] = np.ndarray(io.shape)
-    return
+        if node.operator == "copy":
+            io_z = node.outputs["Z"]
 
+            # invariant -- all successors to a copy will
+            # be on the same node
+            scc_gnode = graph.successors(gnode).__next__()
+            scc_node = graph.nodes[scc_gnode]["node"]
+            # check successor
+            if scc_node.device_type == "gpu":
+                with cupy.cuda.Device(scc_node.device_id):
+                    alloc_map[io_z.name] = cupy.ndarray(io_z.shape)
+            else:
+                alloc_map[io_z.name] = np.ndarray(io_z.shape)
+        else:
+            for io in node.outputs.values():
+                if io.kind == "pointer":
+                    if node.device_type == "gpu":
+                        with cupy.cuda.Device(node.device_id):
+                            alloc_map[io.name] = cupy.ndarray(io.shape)
+                    else:
+                        alloc_map[io.name] = np.ndarray(io.shape)
 
-def place_n_opt(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
-    for gnode in graph.nodes:
-        node = graph.nodes[gnode]["node"]
-        node.device_type = "cpu"
-        node.device_id = "0"
-
+        for io in node.inputs.values():
+            if io.kind == "static" and node.device_type == "gpu":
+                print(node.operator, io.data, type(io.data))
+                with cupy.cuda.Device(node.device_id):
+                    io.data = cupy.array(io.data)
+                print(node.operator, io.data, type(io.data))
     return
 
 
@@ -49,10 +82,14 @@ def build_kernel(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -
     if oper == "add":
         if node.device_type == "cpu":
             return kernels.add_cpu(node, alloc_map, config)
+        else:
+            return kernels.add_gpu(node, alloc_map, config)
     if oper == "load":
         return kernels.load_cpu(node, alloc_map, config)
     if oper == "store":
         return kernels.store_cpu(node, alloc_map, config)
+    if oper == "copy":
+        return kernels.copy(node, alloc_map, config)
 
     raise ValueError(f"Operator {oper} not supported")
 
@@ -89,8 +126,13 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                         if lto:
                             deps.append(lto)
 
+                    loc = None
+                    if node.device_type == "cpu":
+                        loc = pcpu.cpu(node.device_id)
+                    else:
+                        loc = pcuda.gpu(node.device_id)
 
-                    node.last_task_obj = ptasks.spawn(placement=pcpu.cpu(0), dependencies=deps)(node.fn)
+                    node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(node.fn)
 
                     logging.log(logging.INFO, "---{}---".format(node.operator))
                     logging.log(logging.INFO, "launched {}".format(node.last_task_obj))

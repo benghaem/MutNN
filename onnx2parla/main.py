@@ -23,16 +23,24 @@ graph = nx.DiGraph()
 node_load = Node(
             "load",
             {},
-            {"Z": InOut("data", "pointer", None, (4))},
+            {"Z": InOut("data_cpu", "pointer", None, (4))},
             {"batch_id": 0,
              "width": 4},
+            0
+            )
+
+n_copy_to = Node(
+            "copy",
+            {"X": InOut("data_cpu", "pointer", None, (4))},
+            {"Z": InOut("data_gpu", "pointer", None, (4))},
+            {},
             0
             )
 
 node1 = Node(
     "add",
     {
-        "X": InOut("data", "pointer", None, (4)),
+        "X": InOut("data_gpu", "pointer", None, (4)),
         "Y": InOut("op0_y", "static", np.array([1, 2, 3, 4]), (4)),
     },
     {"Z": InOut("op0_z", "pointer", None, (4))},
@@ -46,14 +54,22 @@ node2 = Node(
         "X": InOut("op0_z", "pointer", None, (4)),
         "Y": InOut("op1_y", "static", np.array([1, 2, 3, 4]), (4)),
     },
-    {"Z": InOut("op1_z", "pointer", None, (4))},
+    {"Z": InOut("op1_z_gpu", "pointer", None, (4))},
     {},
     0
 )
 
+n_copy_from = Node(
+            "copy",
+            {"X": InOut("op1_z_gpu", "pointer", None, (4))},
+            {"Z": InOut("out_cpu", "pointer", None, (4))},
+            {},
+            0
+            )
+
 node_store = Node(
             "store",
-            {"X": InOut("op1_z", "pointer", None, (4))},
+            {"X": InOut("out_cpu", "pointer", None, (4))},
             {},
             {},
             0
@@ -68,20 +84,32 @@ def debug_print_graph(graph):
 graph.add_node(0)
 graph.nodes[0]["node"] = node_load
 
+graph.add_node(4)
+graph.nodes[4]["node"] = n_copy_to
+
+graph.add_edge(0, 4) #load to copy_to
+
 graph.add_node(1)
 graph.nodes[1]["node"] = node1
 
-graph.add_edge(0, 1) #load to 1
+graph.add_edge(4, 1) #load to 1
 
 graph.add_node(2)
 graph.nodes[2]["node"] = node2
 
 graph.add_edge(1, 2) #1 -> 2
 
+graph.add_node(5)
+graph.nodes[5]["node"] = n_copy_from
+
+graph.add_edge(2, 5) #2 -> store
+
 graph.add_node(3)
 graph.nodes[3]["node"] = node_store
 
-graph.add_edge(2, 3) #2 -> store
+graph.add_edge(5,3)
+
+
 
 amap = {}
 
@@ -92,7 +120,7 @@ def echo_idx(start_idx, end_idx):
 def echo_store(arr):
     logging.log(logging.INFO, f"stored: {arr}")
 
-config = Config(echo_store, echo_idx, 4, 4*1000)
+config = Config(echo_store, echo_idx, 4, 4*10000)
 
 print(amap)
 debug_print_graph(graph)
