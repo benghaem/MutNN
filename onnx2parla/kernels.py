@@ -79,9 +79,9 @@ def add_cpu(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -> Cal
             "Node operator should be add, not {}".format(node.get_operator())
         )
 
-    x_io = node.inputs["X"]
-    y_io = node.inputs["Y"]
-    z_io = node.outputs["Z"]
+    x_io = node.inputs["A"]
+    y_io = node.inputs["B"]
+    z_io = node.outputs["C"]
 
     x = x_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
@@ -94,7 +94,7 @@ def add_cpu(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -> Cal
 
 def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """Add Kernel (CPU version)
+    """Add Kernel (GPU version)
 
     This function creates a kernel which adds two vectors on CPU
 

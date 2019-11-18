@@ -1,7 +1,11 @@
 class Node:
-    def __init__(self, operator, inputs, outputs, attrs, instance_id):
+    def __init__(self, node_id, operator, inputs, outputs, attrs, instance_id):
 
-        # Onnx
+        # Identification
+        self.node_id = node_id
+        self.instance_id = instance_id
+
+        # Operational
         self.operator = operator
         self.inputs = inputs
         self.outputs = outputs
@@ -12,8 +16,6 @@ class Node:
         self.device_type = None
         self.device_id = None
         self.last_task_obj = None
-
-        self.instance_id = instance_id
 
     def get_operator(self):
         return self.operator
@@ -32,7 +34,19 @@ class Node:
         return True
 
     def __str__(self):
-        return "{} @ {} -> {}".format(self.operator, self.device_type, self.fn)
+        return f"[{self.node_id}@{self.device_type}.{self.device_id}] {self.operator}"
+
+    def pretty_print(self):
+        print(self)
+        print("inputs:")
+        for i in self.inputs.items():
+            print("\t", i[0], ": ", i[1])
+        print("outputs:")
+        for o in self.outputs.items():
+            print("\t", o[0], ": ", o[1])
+        print("attrs:")
+        for a in self.attrs.items():
+            print("\t", a)
 
 
 class InOut:
@@ -51,3 +65,5 @@ class InOut:
             return self.data
         return None
 
+    def __str__(self):
+        return f"{self.name} {{ {self.kind} < {self.shape} > }}"

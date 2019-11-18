@@ -5,28 +5,29 @@ import math
 import logging
 from typing import Dict, Callable
 
-import parla
 from parla import cpu as pcpu
 from parla import cuda as pcuda
 from parla import tasks as ptasks
-from parla import array as parray
 
 import cupy
 
 from node import Node
 import kernels
 from config import Config
+import operators as ops
 
 
 def place_n_opt(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
-        if (node.operator == "add" or node.operator == "copy"):
-            node.device_type = "gpu"
-            node.device_id = 0
-        else:
-            node.device_type = "cpu"
-            node.device_id = 0
+        # if (node.operator == ops.ADD or node.operator == ops.O2P_COPY):
+        #     node.device_type = "gpu"
+        #     node.device_id = 0
+        # else:
+        #     node.device_type = "cpu"
+        #     node.device_id = 0
+        node.device_type = "cpu"
+        node.device_id = 0
     return
 
 
@@ -79,16 +80,16 @@ def build_graph(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Con
 def build_kernel(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -> Callable[[], None]:
 
     oper = node.get_operator()
-    if oper == "add":
+    if oper == ops.ADD:
         if node.device_type == "cpu":
             return kernels.add_cpu(node, alloc_map, config)
         else:
             return kernels.add_gpu(node, alloc_map, config)
-    if oper == "load":
+    if oper == ops.O2P_LOAD:
         return kernels.load_cpu(node, alloc_map, config)
-    if oper == "store":
+    if oper == ops.O2P_STORE:
         return kernels.store_cpu(node, alloc_map, config)
-    if oper == "copy":
+    if oper == ops.O2P_COPY:
         return kernels.copy(node, alloc_map, config)
 
     raise ValueError(f"Operator {oper} not supported")
@@ -115,7 +116,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                     node = graph.nodes[gnode]["node"]
 
                     deps = []
-                    #get parents and get children
+                    # get parents and get children
                     for gparent in graph.predecessors(gnode):
                         lto = graph.nodes[gparent]["node"].last_task_obj
                         if lto:
@@ -137,6 +138,5 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                     logging.log(logging.INFO, "---{}---".format(node.operator))
                     logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
                     logging.log(logging.INFO, "deps {}".format(deps))
-
 
     return fn

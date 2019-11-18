@@ -1,1 +1,6 @@
 env/
+__pycache__
+.pytype
+.mypy_cache
+
+*.log
