@@ -29,10 +29,10 @@ def debug_print_graph(graph):
         node.pretty_print()
 
 
-amap = {}
 config = Config(echo_store, echo_idx, 4, 4 * 10000)
-graph = frontend.from_onnx(sys.argv[1])
+graph = frontend.from_onnx(sys.argv[1], config)
 
+amap = {}
 print(amap)
 debug_print_graph(graph)
 

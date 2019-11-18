@@ -10,21 +10,24 @@ from config import Config
 
 from typing import Callable, Dict
 
+
 def load_cpu(node: Node, alloc_map: Dict[str, np.ndarray], config):
     z_io = node.outputs["Z"]
     z = z_io.get_data(alloc_map)
 
     width = node.get_attr("width")
-    batch_width = config.batch_width
+    batch_size = config.batch_size
 
     def fn():
         batch_id = node.get_attr("batch_id")
-        start_idx = batch_id * batch_width + node.instance_id * width
+        start_idx = batch_id * batch_size + node.instance_id * width
         end_idx = start_idx + width
         parray.copy(z, config.user_load_fn(start_idx, end_idx))
-        batch_id +=1
+        batch_id += 1
         node.set_attr("batch_id", batch_id)
+
     return fn
+
 
 def store_cpu(node, alloc_map, config):
     x_io = node.inputs["X"]
@@ -32,6 +35,7 @@ def store_cpu(node, alloc_map, config):
 
     def fn():
         config.user_store_fn(x)
+
     return fn
 
 
@@ -42,23 +46,23 @@ def copy(node: Node, alloc_map, config: Config):
     x = x_io.get_data(alloc_map)
     z = z_io.get_data(alloc_map)
 
-    tx = type(x)
     tz = type(z)
 
     def fn():
-        if tz == numpy.ndarray: #to cpu
-            np.copyto(z,cupy.asnumpy(x))
-        if tz == cupy.core.core.ndarray: #to gpu
+        if tz == numpy.ndarray:  # to cpu
+            np.copyto(z, cupy.asnumpy(x))
+        if tz == cupy.core.core.ndarray:  # to gpu
             with cupy.cuda.Device(node.device_id):
-                cupy.copyto(z,cupy.asarray(x))
+                cupy.copyto(z, cupy.asarray(x))
 
         logging.log(logging.INFO, f"done copy {z}, {tz}")
-
 
     return fn
 
 
-def add_cpu(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -> Callable[[], None]:
+def add_cpu(
+    node: Node, alloc_map: Dict[str, np.ndarray], config: Config
+) -> Callable[[], None]:
 
     """Add Kernel (CPU version)
 
@@ -92,6 +96,7 @@ def add_cpu(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -> Cal
 
     return fn
 
+
 def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     """Add Kernel (GPU version)
@@ -122,7 +127,7 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     z = z_io.get_data(alloc_map)
 
     def fn():
-        cupy.copyto(z, x+y)
+        cupy.copyto(z, x + y)
         logging.log(logging.INFO, f"{z} = {x} + {y}")
 
     return fn
