@@ -1,3 +1,10 @@
+def node_stringizer(value):
+    if isinstance(value, Node):
+        return value.operator + "_" + str(value.device_type)
+    else:
+        return str(value)
+
+
 class Node:
     def __init__(self, node_id, operator, inputs, outputs, attrs, instance_id):
 
@@ -19,6 +26,21 @@ class Node:
 
     def get_operator(self):
         return self.operator
+
+    def replace_io_for_input_buffer(self, buf_name, new_io):
+        name_to_replace = None
+        for name, io in self.inputs.items():
+            if io.name == buf_name:
+                name_to_replace = name
+                break
+
+        if name_to_replace is None:
+            raise ValueError(f"buffer {buf_name} is not used as input for {self}")
+
+        self.inputs[name_to_replace] = new_io
+
+    def get_device(self):
+        return (self.device_type, self.device_id)
 
     def get_input_name(self, inp):
         return self.inputs[inp].name

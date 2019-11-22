@@ -141,7 +141,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
 
         source = info["def"][0]
         for use in info["use"]:
-            graph.add_edge(source, use)
+            graph.add_edge(source, use, buffer=name)
             logging.log(logging.DEBUG, f"Added edge {source} -> {use} via {name}")
 
     # we sanity check that there are no nodes that have not been connected to
