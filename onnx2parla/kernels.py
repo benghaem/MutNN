@@ -79,7 +79,7 @@ def add_cpu(
         fn: A new kernel Z = X + Y
     """
 
-    if node.get_operator() != "add":
+    if node.get_operator() != "Add":
         raise ValueError(
             "Node operator should be add, not {}".format(node.get_operator())
         )
@@ -183,15 +183,124 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
+    x_io = node.inputs["X"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    stride = (node.get_attr("strides"))[0]      ## Assuming same stride in all directions
+    padding = (node.get_attr("pads"))[0]        ## Assuming same padding in all directions
+    kernel_shape = node.get_attr("kernel_shape")
+
     def fn():
+    	n_x, c_x, h_x, w_x = x.shape
+    	h_out = (h_x - h_filter + 2 * padding) / stride + 1
+    	w_out = (w_x - w_filter + 2 * padding) / stride + 1
+
+    	if not h_out.is_integer() or not w_out.is_integer():
+        	raise Exception('Invalid output dimension!')
+
+    	h_out, w_out = int(h_out), int(w_out)
+
+    	x_reshaped = x.reshape(n_x * c_x, 1, h_x, w_x)
+    	x_col = im2col_indices(x_reshaped, kernel_shape[0], kernel_shape[1], padding=padding, stride=stride)
+    	max_idx = np.argmax(x_col, axis=0)
+    	out = x_col[max_idx, range(max_idx.size)]
+    	out = out.reshape(h_out, w_out, n_x, c_x)
+    	out = out.transpose(2, 3, 0, 1)
+    	
+    	parray.copy(y, out)
+
     	return fn
 
 def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
+    x_io = node.inputs["X"]
+    gamma_io = node.inputs["scale"]
+    beta_io = node.inputs["B"]
+    mean_io = node.inputs["mean"]
+    var_io = node.inputs["var"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    gamma = gamma_io.get_data(alloc_map)
+    beta = beta_io.get_data(alloc_map)
+    mean = mean_io.get_data(alloc_map)
+    var = var_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+    
+    epsilon = node.get_attr("epsilon")
+    momentum = node.get_attr("momentum")
+    spatial = node.get_attr("spatial")
+
     def fn():
+        N, C, H, W = x.shape
+        # mini-batch mean
+        mean_batch = np.mean(x, axis=(0, 2, 3))
+        mean_moving = (mean_batch * (1 - momentum)) + (mean * momentum)
+        # mini-batch variance
+        variance_batch = np.mean((x - mean_batch.reshape((1, C, 1, 1))) ** 2, axis=(0, 2, 3))
+        variance_moving = (variance_batch * (1 - momentum)) + (variance * momentum)
+        # normalize
+        x_hat = (x - mean_moving.reshape((1, C, 1, 1))) * 1.0 / np.sqrt(variance_moving.reshape((1, C, 1, 1)) + epsilon)
+        # scale and shift
+        out = gamma.reshape((1, C, 1, 1)) * x_hat + beta.reshape((1, C, 1, 1))
+        parray.copy(y, out)
         return fn
 
-def reshape_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    x_io = node.inputs["X"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
 
     def fn():
-        return fn
+    	for n in np.arange(0, x.shape[0]):
+    		for c in np.arange(0, m.shape[1]):
+    			out[n,c,0,0] =  np.average(m[n, c, :, :])
+
+    	parray.copy(y, out)
+
+    	return fn
+
+def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    x_io = node.inputs["input"]
+    y_io = node.outputs["output"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+
+    def fn():
+    	parray.copy(y, x.reshape(x.shape[0], -1))
+    	return fn
+
+def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    x_io = node.inputs["A"]
+    w_io = node.inputs["B"]
+    b_io = node.inputs["C"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    w = w_io.get_data(alloc_map)
+    b = b_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    alpha = node.get_attr("alpha")
+    beta = node.get_attr("beta")
+    transX = node.get_attr("transA")
+    transW = node.get_attr("transB")  
+
+    def fn():
+    	if (transX == 1):
+    		x = np.transpose(x)
+    	if (transW == 1):
+    		w = np.transpose(w)
+
+    	parray.copy(y, alpha*(x @ w) + beta*b)
+    	return fn

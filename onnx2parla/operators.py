@@ -4,6 +4,9 @@ CONV = "Conv"
 BATCH_NORM = "BatchNormalization"
 RELU = "Relu"
 MAXPOOL = "MaxPool"
+GLOBALAVERAGEPOOL = "GlobalAveragePool"
+FLATTEN = "Flatten"
+GEMM = "Gemm"
 
 # o2p
 O2P_COPY = "o2p_copy"
