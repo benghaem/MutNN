@@ -1,0 +1,3 @@
+[submodule "onnx2parla/numpy-ml"]
+	path = onnx2parla/numpy-ml
+	url = https://github.com/ddbourgin/numpy-ml.git
