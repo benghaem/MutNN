@@ -5,7 +5,7 @@ import logging
 
 import cupy
 
-import im2col
+from third_party import utils as utils
 
 from node import Node
 from config import Config
