@@ -192,8 +192,18 @@ def build_kernel(
 
     if oper == ops.CONV:
         return kernels.conv_cpu(node, alloc_map, config)
+    if oper == ops.BATCH_NORM:
+        return kernels.batchnorm_cpu(node, alloc_map, config)
     if oper == ops.RELU:
         return kernels.relu_cpu(node, alloc_map, config)
+    if oper == ops.MAXPOOL:
+        return kernels.maxpool_cpu(node, alloc_map, config)
+    if oper == ops.GLOBALAVERAGEPOOL:
+        return kernels.globalAveragePool_cpu(node, alloc_map, config)
+    if oper == ops.FLATTEN:
+        return kernels.flatten_cpu(node, alloc_map, config)
+    if oper == ops.GEMM:
+        return kernels.gemm_cpu(node, alloc_map, config)
 
     raise ValueError(f"Operator {oper} not supported")
 
@@ -202,7 +212,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
     async def fn():
         async with ptasks.finish():
 
-            batches = math.ceil(config.dataset_len / config.batch_width)
+            batches = math.ceil(config.dataset_len / config.batch_size)
 
             for batch_id in range(batches):
                 for gnode in nx.bfs_tree(graph, 0).nodes():
