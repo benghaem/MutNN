@@ -92,6 +92,11 @@ def build_kernel(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -
     if oper == ops.O2P_COPY:
         return kernels.copy(node, alloc_map, config)
 
+    if oper == ops.CONV:
+    	return kernels.conv_cpu(node, alloc_map, config)
+    if oper == ops.RELU:
+    	return kernels.relu_cpu(node, alloc_map, config)
+
     raise ValueError(f"Operator {oper} not supported")
 
 
