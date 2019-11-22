@@ -1,3 +1,3 @@
-[submodule "onnx2parla/third_party/numpy-ml"]
-	path = onnx2parla/third_party/numpy-ml
+[submodule "onnx2parla/third_party/numpy_ml"]
+	path = onnx2parla/third_party/numpy_ml
 	url = https://github.com/ddbourgin/numpy-ml.git
