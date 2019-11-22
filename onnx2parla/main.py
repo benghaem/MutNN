@@ -16,9 +16,11 @@ logging.basicConfig(filename="backend.log", level=logging.INFO)
 # User functions
 
 
-def echo_idx(start_idx, end_idx):
-    data = [start_idx + i for i in range(end_idx - start_idx)]
-    return np.array(data)
+def random_data(start_idx, end_idx):
+    batches = end_idx - start_idx
+    data = np.random.random((batches, 3, 224, 224))
+
+    return data
 
 
 def echo_store(arr):
@@ -31,13 +33,18 @@ def debug_print_graph(graph):
         node.pretty_print()
 
 
-config = Config(echo_store, echo_idx, 4, 4 * 10000)
+config = Config(echo_store, random_data, 4, 4)
 graph = frontend.from_onnx(sys.argv[1], config)
 
 amap = {}
 debug_print_graph(graph)
 
-passes = [backend.place_n_opt, backend.copy_insertion, backend.allocate, backend.build_graph]
+passes = [
+    backend.place_n_opt,
+    backend.copy_insertion,
+    backend.allocate,
+    backend.build_graph,
+]
 
 for i, opass in enumerate(passes):
     opass(graph, amap, config)
