@@ -1,10 +1,12 @@
 import sys
 import numpy as np
 import logging
+import networkx as nx
 
 import backend
 import onnx_frontend as frontend
 from config import Config
+from node import node_stringizer
 
 from parla import cpu as pcpu
 from parla import tasks as ptasks
@@ -33,17 +35,16 @@ config = Config(echo_store, echo_idx, 4, 4 * 10000)
 graph = frontend.from_onnx(sys.argv[1], config)
 
 amap = {}
-print(amap)
 debug_print_graph(graph)
 
-passes = [backend.place_n_opt, backend.allocate, backend.build_graph]
+passes = [backend.place_n_opt, backend.copy_insertion, backend.allocate, backend.build_graph]
 
 for i, opass in enumerate(passes):
     opass(graph, amap, config)
 
     print("---pass: {}---".format(opass.__name__))
-    print(amap)
     debug_print_graph(graph)
+    nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
 
 # run everything!
 ptasks.spawn(placement=pcpu.cpu(0))(backend.build_execute(graph, config))

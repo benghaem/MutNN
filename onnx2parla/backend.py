@@ -11,27 +11,123 @@ from parla import tasks as ptasks
 
 import cupy
 
-from node import Node
+from node import Node, InOut
 import kernels
 from config import Config
 import operators as ops
 
 
-def place_n_opt(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
+def build_copy_node(in_io, out_io, node_id):
+    inputs = {"X": in_io}
+    outputs = {"Z": out_io}
+    attrs = {}
+    new_node = Node(node_id, ops.O2P_COPY, inputs, outputs, attrs, 0)
+
+    return new_node
+
+
+def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
+    """
+    If an output of a node is on a different device
+     1) we need to insert a copy from cpu to gpu after the add
+     2) we need to rename the node that is used on the gpu to ensure that all
+        names are globally unique
+    eg
+
+    a b               a b
+    | |               | |
+    add @ cpu  -----> add @ cpu
+     |                 |
+     c                 c
+     |                 |
+    relu @ gpu        copy @ gpu
+                       |
+                       c_gpu
+                       |
+                      relu @ gpu
+
+    To do this we will iterate through all nodes check the following
+    conditions:
+
+        if child device is not my device and the child is not a copy
+        operator
+            create a new copy operator from  my device to the child device
+            and replace the child's IO input
+    """
+
+    # get the starting id for new nodes
+    node_id = graph.number_of_nodes()
+    total_nodes = node_id
+
+    # manually iterate over all the known node id's before we did modifications
+    # to the graph
+    for gnode in range(total_nodes):
+        node = graph.nodes[gnode]["node"]
+
+        output_groups = {}  # {buffer: {device: [node ids]}
+
+        for gchild in graph.successors(gnode):
+            child = graph.nodes[gchild]["node"]
+            buffer = graph.edges[gnode, gchild]["buffer"]
+            device = child.get_device()
+
+            if buffer not in output_groups:
+                output_groups[buffer] = {}
+
+            if device not in output_groups[buffer]:
+                output_groups[buffer][device] = []
+
+            output_groups[buffer][device].append(gchild)
+
+        for output_io in node.outputs.values():
+            active_buffer = output_io.name
+
+            for device, gchildren in output_groups[buffer].items():
+                if device != node.get_device():
+                    buffer_on_device = "{}_{}_{}".format(
+                        active_buffer, device[0], device[1]
+                    )
+                    copy_in_io = InOut(active_buffer, "pointer", None, output_io.shape)
+
+                    copy_out_io = InOut(
+                        buffer_on_device, "pointer", None, output_io.shape
+                    )
+
+                    new_copy_node = build_copy_node(copy_in_io, copy_out_io, node_id)
+                    new_copy_node.device_type = device[0]
+                    new_copy_node.device_id = device[1]
+
+                    graph.add_node(node_id)
+                    graph.nodes[node_id]["node"] = new_copy_node
+                    graph.add_edge(gnode, node_id, buffer=active_buffer)
+
+                    for gchild in gchildren:
+                        child = graph.nodes[gchild]["node"]
+                        child.replace_io_for_input_buffer(active_buffer, copy_out_io)
+
+                        graph.add_edge(node_id, gchild, buffer=buffer_on_device)
+                        graph.remove_edge(gnode, gchild)
+
+                    node_id += 1
+
+
+def place_n_opt(
+    graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
+) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
-        # if (node.operator == ops.ADD or node.operator == ops.O2P_COPY):
-        #     node.device_type = "gpu"
-        #     node.device_id = 0
-        # else:
-        #     node.device_type = "cpu"
-        #     node.device_id = 0
-        node.device_type = "cpu"
-        node.device_id = 0
+        if node.operator == ops.CONV:
+            node.device_type = "gpu"
+            node.device_id = 0
+        else:
+            node.device_type = "cpu"
+            node.device_id = 0
     return
 
 
-def allocate(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
+def allocate(
+    graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
+) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
 
@@ -61,14 +157,14 @@ def allocate(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
 
         for io in node.inputs.values():
             if io.kind == "static" and node.device_type == "gpu":
-                print(node.operator, io.data, type(io.data))
                 with cupy.cuda.Device(node.device_id):
                     io.data = cupy.array(io.data)
-                print(node.operator, io.data, type(io.data))
     return
 
 
-def build_graph(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
+def build_graph(
+    graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
+) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
 
@@ -77,7 +173,9 @@ def build_graph(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Con
     return
 
 
-def build_kernel(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -> Callable[[], None]:
+def build_kernel(
+    node: Node, alloc_map: Dict[str, np.ndarray], config: Config
+) -> Callable[[], None]:
 
     oper = node.get_operator()
     if oper == ops.ADD:
@@ -93,9 +191,9 @@ def build_kernel(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -
         return kernels.copy(node, alloc_map, config)
 
     if oper == ops.CONV:
-    	return kernels.conv_cpu(node, alloc_map, config)
+        return kernels.conv_cpu(node, alloc_map, config)
     if oper == ops.RELU:
-    	return kernels.relu_cpu(node, alloc_map, config)
+        return kernels.relu_cpu(node, alloc_map, config)
 
     raise ValueError(f"Operator {oper} not supported")
 
@@ -103,14 +201,6 @@ def build_kernel(node: Node, alloc_map: Dict[str, np.ndarray], config: Config) -
 def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
     async def fn():
         async with ptasks.finish():
-
-            # TODO: manage dependencies
-            # We could do this by storing the task object onto the node
-            # subsequent runs can update and replace this (or append)
-
-            # ex: deps = [parent.task[batch_id] for parent in parents] +
-            #            [node.task[batch_id-1]
-            # node.task.append(spawn(dependencies = deps))
 
             batches = math.ceil(config.dataset_len / config.batch_width)
 
@@ -138,7 +228,9 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                     else:
                         loc = pcuda.gpu(node.device_id)
 
-                    node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(node.fn)
+                    node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
+                        node.fn
+                    )
 
                     logging.log(logging.INFO, "---{}---".format(node.operator))
                     logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
