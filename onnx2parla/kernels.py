@@ -137,6 +137,10 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
+    """ 
+    	Function:
+    		Y = X CONV W (Using padding, stride and dilaton attribute
+    """
     x_io = node.inputs["X"]
     w_io = node.inputs["W"]
     y_io = node.outputs["Y"]
@@ -145,35 +149,24 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     w = w_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
-    stride = (node.get_attr("strides"))[0]  # Assuming same stride in all directions
-    padding = (node.get_attr("pads"))[0]  # Assuming same padding in all directions
-
+    stride = node.get_attr("strides")[0]  # Assuming same stride in all directions
+    padding = node.get_attr("pads")[0]  # Assuming same padding in all directions
+    dilations = node.get_attr("dilations")[0]  # Assuming same padding in all directions
+    
     def fn():
-        n_filters, c_filter, h_filter, w_filter = w.shape
-        n_x, c_x, h_x, w_x = x.shape
-        h_out = (h_x - h_filter + 2 * padding) / stride + 1
-        w_out = (w_x - w_filter + 2 * padding) / stride + 1
-
-        if not h_out.is_integer() or not w_out.is_integer():
-            raise Exception("Invalid output dimension!")
-
-        h_out, w_out = int(h_out), int(w_out)
-
-        x_col = im2col.im2col_indices(
-            x, h_filter, w_filter, padding=padding, stride=stride
-        )
-        w_col = w.reshape(n_filters, -1)
-
-        out = w_col @ x_col
-        out = out.reshape(n_filters, h_out, w_out, n_x)
-        out = out.transpose(3, 0, 1, 2)
-
-        parray.copy(y, out)
+    	xt = x.transpose(0, 2, 3, 1)
+    	wt = w.transpose(2, 3, 1, 0)
+    	parray.copy(y, (utils.conv2D(xt, wt, stride=stride, pad=padding, dilation=dilations).transpose(0, 3, 1, 2)))
 
     return fn
 
-
 def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = RELU(X)
+    		max (x, 0)
+    """
 
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
@@ -189,6 +182,12 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
+    """ 
+        Function:
+                Y = MAXPOOL(X) (Using padding, stride and pool kernel size)
+    		--> Propagate maximum value in the kernel window
+    """
+
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
@@ -200,30 +199,42 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     kernel_shape = node.get_attr("kernel_shape")
 
     def fn():
-        n_x, c_x, h_x, w_x = x.shape
-        h_out = (h_x - kernel_shape[0] + 2 * padding) / stride + 1
-        w_out = (w_x - kernel_shape[1] + 2 * padding) / stride + 1
+        xt = x.transpose(0, 2, 3, 1)
+        n_ex, in_rows, in_cols, nc_in = xt.shape
+        (fr, fc), s, p = kernel_shape, stride, padding
+        x_pad, (pr1, pr2, pc1, pc2) = utils.pad2D(xt, p, kernel_shape, s)
 
-        if not h_out.is_integer() or not w_out.is_integer():
-            raise Exception("Invalid output dimension!")
+        out_rows = np.floor(1 + (in_rows + pr1 + pr2 - fr) / s).astype(int)
+        out_cols = np.floor(1 + (in_cols + pc1 + pc2 - fc) / s).astype(int)
+        Y = np.zeros((n_ex, out_rows, out_cols, nc_in))
+        for m in range(n_ex):
+            for i in range(out_rows):
+                for j in range(out_cols):
+                    for c in range(nc_in):
+                        # calculate window boundaries, incorporating stride
+                        i0, i1 = i * s, (i * s) + fr
+                        j0, j1 = j * s, (j * s) + fc
 
-        h_out, w_out = int(h_out), int(w_out)
-
-        x_reshaped = x.reshape(n_x * c_x, 1, h_x, w_x)
-        x_col = im2col.im2col_indices(
-            x_reshaped, kernel_shape[0], kernel_shape[1], padding=padding, stride=stride
-        )
-        max_idx = np.argmax(x_col, axis=0)
-        out = x_col[max_idx, range(max_idx.size)]
-        out = out.reshape(h_out, w_out, n_x, c_x)
-        out = out.transpose(2, 3, 0, 1)
-
-        parray.copy(y, out)
+                        xi = x_pad[m, i0:i1, j0:j1, c]
+                        Y[m, i, j, c] = np.amax(xi)
+        Y = Y.transpose(0, 3, 1, 2)
+        parray.copy(y, Y)
 
     return fn
 
 
 def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = gamma * x_hat + beta
+    			where:
+    				x_hat = (x - r_mean)/sqrt(r_variance + epsilon)
+    			& r_mean and r_variance are running mean & variance
+    				
+    				r_mean = momentum * training_mean + (1 - momentum) * calculated mean
+    				r_variance = momentum * training_variance + (1 - momentum) * calculated variance
+    """
 
     x_io = node.inputs["X"]
     gamma_io = node.inputs["scale"]
@@ -268,6 +279,12 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
+    """ 
+        Function:
+                Y = GLOBAL_AVERAGE_POOL(X)
+    		--> CONVE NCHW to NC11 (Average on HW dimensions)
+    """
+
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
@@ -275,7 +292,7 @@ def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[],
     y = y_io.get_data(alloc_map)
 
     def fn():
-        out = np.empty(x.shape[0], x.shape[1], 1, 1)
+        out = np.empty([x.shape[0], x.shape[1], 1, 1])
         for n in np.arange(0, x.shape[0]):
             for c in np.arange(0, x.shape[1]):
                 out[n, c, 0, 0] = np.average(x[n, c, :, :])
@@ -286,6 +303,12 @@ def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[],
 
 
 def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = FLATTEN(X)
+    		--> Convert 4D 'X' to 2D 'Y'
+    """
 
     x_io = node.inputs["input"]
     y_io = node.outputs["output"]
@@ -300,6 +323,11 @@ def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 
 def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = alpha*(X @ W) + beta*b
+    """
 
     x_io = node.inputs["A"]
     w_io = node.inputs["B"]
