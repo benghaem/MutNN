@@ -117,7 +117,7 @@ def place_n_opt(
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
         if node.operator == ops.CONV:
-            node.device_type = "gpu"
+            node.device_type = "cpu"
             node.device_id = 0
         else:
             node.device_type = "cpu"
@@ -154,7 +154,7 @@ def allocate(
                             alloc_map[io.name] = cupy.ndarray(io.shape)
                     else:
                         alloc_map[io.name] = np.ndarray(io.shape)
-
+        
         for io in node.inputs.values():
             if io.kind == "static" and node.device_type == "gpu":
                 with cupy.cuda.Device(node.device_id):
@@ -169,7 +169,8 @@ def build_graph(
         node = graph.nodes[gnode]["node"]
 
         node.fn = build_kernel(node, alloc_map, config)
-
+        logging.log(logging.INFO, f"SAA -> {node.node_id} {node.operator}")
+        
     return
 
 
