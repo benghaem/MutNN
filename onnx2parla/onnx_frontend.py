@@ -36,7 +36,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     value_info = {}
     io_map = {}
 
-    # this will capture all of the graph intializerexport_params (bool, default True) – if specified, all parameters will be exported. Set this to False if you want to export an untrained model. In this case, the exported model will first take all of its parameters as arguments, the ordering as specified by model.state_dict().values()s
+    # this will capture all of the graph
     for init in polished_model.graph.initializer:
         initializers[init.name] = init
         logging.log(logging.DEBUG, f"Registered initializer: {init.name}")
@@ -50,7 +50,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     # this captures the graph output
     for vi in polished_model.graph.output:
         value_info[vi.name] = vi
-        logging.log(logging.DEBUG, f"Registered value info: {vi.name} (output)")
+        logging.log(logging.DEBUG, f"Registered value info: {vi.name} (out)")
 
     # this captures all model inputs
     for inp in polished_model.graph.input:
@@ -143,7 +143,8 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
         source = info["def"][0]
         for use in info["use"]:
             graph.add_edge(source, use, buffer=name)
-            logging.log(logging.DEBUG, f"Added edge {source} -> {use} via {name}")
+            logging.log(logging.DEBUG, f"Added edge {source} -> {use}"
+                                       f" via {name}")
 
     # we sanity check that there are no nodes that have not been connected to
     # the graph
@@ -206,8 +207,6 @@ def build_load_node(target, io_map, usage_map, node_id, batch_size):
 
 
 if __name__ == "__main__":
-    import sys
-
     logging.basicConfig(filename="onnx_frontend.log", level=logging.DEBUG)
 
     config = Config(None, None, 4, 4)

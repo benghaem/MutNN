@@ -137,7 +137,7 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """ 
+    """
         Function:
             Y = X CONV W (Using padding, stride and dilaton attribute
     """
@@ -149,21 +149,32 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     w = w_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
-    stride = node.get_attr("strides", [1])[0]  # Assuming same stride in all directions
-    padding = node.get_attr("pads", [0])[0]  # Assuming same padding in all directions
-    dilations = node.get_attr("dilations", [1])[0]  # Assuming same padding in all directions
+    # Assuming same stride in all directions
+    stride = node.get_attr("strides", [1])[0]
+    # Assuming same padding in all directions
+    padding = node.get_attr("pads", [0])[0]
+    dilations = node.get_attr("dilations", [1])[
+        0
+    ]  # Assuming same padding in all directions
 
     def fn():
         xt = x.transpose(0, 2, 3, 1)
         wt = w.transpose(2, 3, 1, 0)
-        parray.copy(y, (utils.conv2D(xt, wt, stride=stride, pad=padding, dilation=dilations).transpose(0, 3, 1, 2)))
+        parray.copy(
+            y,
+            (
+                utils.conv2D(
+                    xt, wt, stride=stride, pad=padding, dilation=dilations
+                ).transpose(0, 3, 1, 2)
+            ),
+        )
 
     return fn
 
 
 def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """ 
+    """
         Function:
                 Y = RELU(X)
             max (x, 0)
@@ -183,7 +194,7 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """ 
+    """
         Function:
                 Y = MAXPOOL(X) (Using padding, stride and pool kernel size)
             --> Propagate maximum value in the kernel window
@@ -195,8 +206,10 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x = x_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
-    stride = (node.get_attr("strides", [1]))[0]  # Assuming same stride in all directions
-    padding = (node.get_attr("pads", [0]))[0]  # Assuming same padding in all directions
+    # Assume same stride in all directions
+    stride = (node.get_attr("strides", [1]))[0]
+    # Assume same padding in all directions
+    padding = (node.get_attr("pads", [0]))[0]
     kernel_shape = node.get_attr("kernel_shape")
 
     def fn():
@@ -226,15 +239,17 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """ 
+    """
         Function:
-                Y = gamma * x_hat + beta
-                where:
-                    x_hat = (x - r_mean)/sqrt(r_variance + epsilon)
-                & r_mean and r_variance are running mean & variance
-                    
-                    r_mean = momentum * training_mean + (1 - momentum) * calculated mean
-                    r_variance = momentum * training_variance + (1 - momentum) * calculated variance
+        Y = gamma * x_hat + beta
+        where:
+            x_hat = (x - r_mean)/sqrt(r_variance + epsilon)
+        & r_mean and r_variance are running mean & variance
+
+            r_mean = momentum * training_mean
+                     + (1 - momentum) * calculated mean
+            r_variance = momentum * training_variance
+                         + (1 - momentum) * calculated variance
     """
 
     x_io = node.inputs["X"]
@@ -280,7 +295,7 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """ 
+    """
         Function:
                 Y = GLOBAL_AVERAGE_POOL(X)
             --> CONVE NCHW to NC11 (Average on HW dimensions)
@@ -305,7 +320,7 @@ def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[],
 
 def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """ 
+    """
         Function:
                 Y = FLATTEN(X)
             --> Convert 4D 'X' to 2D 'Y'
@@ -325,7 +340,7 @@ def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
 def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-    """ 
+    """
         Function:
                 Y = alpha*(X @ W) + beta*b
     """

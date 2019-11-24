@@ -35,7 +35,7 @@ class Node:
                 break
 
         if name_to_replace is None:
-            raise ValueError(f"buffer {buf_name} is not used as input for {self}")
+            raise ValueError(f"buffer {buf_name} is not an input for {self}")
 
         self.inputs[name_to_replace] = new_io
 
@@ -56,7 +56,8 @@ class Node:
         return True
 
     def __str__(self):
-        return f"[{self.node_id}@{self.device_type}.{self.device_id}] {self.operator}"
+        return f"[{self.node_id}@{self.device_type}.{self.device_id}]" \
+               f" {self.operator}"
 
     def pretty_print(self):
         print(self)
