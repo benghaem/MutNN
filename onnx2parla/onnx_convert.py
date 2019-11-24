@@ -6,6 +6,12 @@ onnx_conversion_info = {"Add":
                         "Conv":
                         {"in": ["X", "W", "B"],
                          "out": ["Y"]},
+                        "Transpose":
+                        {"in": ["data"],
+                         "out": ["transposed"]},
+                        "MatMul":
+                        {"in": ["A", "B"],
+                         "out": ["Y"]},
                         "BatchNormalization":
                         {"in": ["X", "scale", "B", "mean", "var"],
                          "out": ["Y", "mean", "var",

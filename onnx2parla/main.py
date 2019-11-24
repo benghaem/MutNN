@@ -11,14 +11,14 @@ from node import node_stringizer
 from parla import cpu as pcpu
 from parla import tasks as ptasks
 
-logging.basicConfig(filename="backend.log", level=logging.INFO)
+logging.basicConfig(filename="full.log", level=logging.DEBUG)
 
 # User functions
 
 
 def random_data(start_idx, end_idx):
     batches = end_idx - start_idx
-    data = np.random.random((batches, 3, 224, 224))
+    data = np.random.random((batches, 10))
 
     return data
 

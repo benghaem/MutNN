@@ -1,6 +1,6 @@
 import onnx
-import onnx.utils
 from onnx import numpy_helper
+import onnx.utils
 
 from node import InOut, Node
 import operators as ops
@@ -36,7 +36,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     value_info = {}
     io_map = {}
 
-    # this will capture all of the graph intializers
+    # this will capture all of the graph intializerexport_params (bool, default True) – if specified, all parameters will be exported. Set this to False if you want to export an untrained model. In this case, the exported model will first take all of its parameters as arguments, the ordering as specified by model.state_dict().values()s
     for init in polished_model.graph.initializer:
         initializers[init.name] = init
         logging.log(logging.DEBUG, f"Registered initializer: {init.name}")
@@ -66,7 +66,8 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
         else:
             new_io.kind = "pointer"
             new_io.data = None
-            new_io.shape = onnx_type_to_shape(inp.type, config.batch_size)
+            new_io.shape = onnx_type_to_shape(inp.type,
+                                              config.batch_size)
 
         io_map[inp.name] = new_io
         logging.log(logging.DEBUG, f"Built IO: {new_io}")
@@ -209,7 +210,9 @@ if __name__ == "__main__":
 
     logging.basicConfig(filename="onnx_frontend.log", level=logging.DEBUG)
 
-    g = from_onnx(sys.argv[1])
+    config = Config(None, None, 4, 4)
+
+    g = from_onnx("../example.onnx", config)
 
     nx.write_gml(g, "frontend.gml", str)
 

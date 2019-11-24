@@ -48,8 +48,8 @@ class Node:
     def get_output_name(self, out):
         return self.outputs[out].name
 
-    def get_attr(self, attr):
-        return self.attrs[attr]
+    def get_attr(self, attr, default=None):
+        return self.attrs.get(attr, default)
 
     def set_attr(self, attr, value):
         self.attrs[attr] = value

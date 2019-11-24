@@ -145,8 +145,8 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     w = w_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
-    stride = (node.get_attr("strides"))[0]  # Assuming same stride in all directions
-    padding = (node.get_attr("pads"))[0]  # Assuming same padding in all directions
+    stride = (node.get_attr("strides", [1]))[0]  # Assuming same stride in all directions
+    padding = (node.get_attr("pads"), [0])[0]  # Assuming same padding in all directions
 
     def fn():
         n_filters, c_filter, h_filter, w_filter = w.shape
@@ -195,8 +195,8 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x = x_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
-    stride = (node.get_attr("strides"))[0]  # Assuming same stride in all directions
-    padding = (node.get_attr("pads"))[0]  # Assuming same padding in all directions
+    stride = (node.get_attr("strides", [1]))[0]  # Assuming same stride in all directions
+    padding = (node.get_attr("pads", [0]))[0]  # Assuming same padding in all directions
     kernel_shape = node.get_attr("kernel_shape")
 
     def fn():
@@ -239,8 +239,8 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     var = var_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
-    epsilon = node.get_attr("epsilon")
-    momentum = node.get_attr("momentum")
+    epsilon = node.get_attr("epsilon", 1e-05)
+    momentum = node.get_attr("momentum", 0.9)
     spatial = node.get_attr("spatial")
 
     def fn():
@@ -311,10 +311,10 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     b = b_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
-    alpha = node.get_attr("alpha")
-    beta = node.get_attr("beta")
-    transX = node.get_attr("transA")
-    transW = node.get_attr("transB")
+    alpha = node.get_attr("alpha", 1.0)
+    beta = node.get_attr("beta", 1.0)
+    transX = node.get_attr("transA", 0)
+    transW = node.get_attr("transB", 0)
 
     def fn():
         if transX == 1:
