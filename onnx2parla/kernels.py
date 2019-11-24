@@ -103,7 +103,7 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     """Add Kernel (GPU version)
 
-    This function creates a kernel which adds two vectors on CPU
+    This function creates a kernel which adds two vectors on GPU
 
     Z = X + Y
 

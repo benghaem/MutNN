@@ -29,7 +29,7 @@ def build_copy_node(in_io, out_io, node_id):
 def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     """
     If an output of a node is on a different device
-     1) we need to insert a copy from cpu to gpu after the add
+     1) we need to insert a copy from cpu to gpu
      2) we need to rename the node that is used on the gpu to ensure that all
         names are globally unique
     eg
@@ -46,13 +46,9 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
                        |
                       relu @ gpu
 
-    To do this we will iterate through all nodes check the following
-    conditions:
-
-        if child device is not my device and the child is not a copy
-        operator
-            create a new copy operator from  my device to the child device
-            and replace the child's IO input
+    We also want to optimize the case where one output on device 1 may be used
+    as multiple inputs on device 2. In this case we only insert one copy and
+    allocate only 1 buffer on each device instead of duplicating the buffer
     """
 
     # get the starting id for new nodes
@@ -60,9 +56,14 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     total_nodes = node_id
 
     # manually iterate over all the known node id's before we did modifications
-    # to the graph
+    # to the graph. This way we can modify the graph as we traverse it
     for gnode in range(total_nodes):
         node = graph.nodes[gnode]["node"]
+
+        # here we store a list of nodes for each unique set of
+        # buffer-device pairs in a heirarchially arranged map
+        # Each of these unique pairs will have a copy node
+        # generated for it
 
         output_groups = {}  # {buffer: {device: [node ids]}
 
@@ -79,6 +80,9 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
             output_groups[buffer][device].append(gchild)
 
+        # now that we know all of the nodes in each of the buffer-device
+        # pairs we iterate though the output buffers of the parent node
+        # and insert a new copy node for each buffer-device pair
         for output_io in node.outputs.values():
             active_buffer = output_io.name
 
@@ -154,7 +158,7 @@ def allocate(
                             alloc_map[io.name] = cupy.ndarray(io.shape)
                     else:
                         alloc_map[io.name] = np.ndarray(io.shape)
-        
+
         for io in node.inputs.values():
             if io.kind == "static" and node.device_type == "gpu":
                 with cupy.cuda.Device(node.device_id):
@@ -170,13 +174,17 @@ def build_graph(
 
         node.fn = build_kernel(node, alloc_map, config)
         logging.log(logging.INFO, f"SAA -> {node.node_id} {node.operator}")
-        
+
     return
 
 
 def build_kernel(
     node: Node, alloc_map: Dict[str, np.ndarray], config: Config
 ) -> Callable[[], None]:
+
+    """
+    For each node in graph build a function for execution on the correct device
+    """
 
     oper = node.get_operator()
     if oper == ops.ADD:
