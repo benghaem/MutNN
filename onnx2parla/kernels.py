@@ -7,6 +7,9 @@ import cupy
 
 from third_party import utils as utils
 
+import chainer
+from chainer import functions as gputils
+
 from node import Node
 from config import Config
 
@@ -57,7 +60,7 @@ def copy(node: Node, alloc_map, config: Config):
             with cupy.cuda.Device(node.device_id):
                 cupy.copyto(z, cupy.asarray(x))
 
-        logging.log(logging.INFO, f"done copy {z}, {tz}")
+        #logging.log(logging.INFO, f"done copy {z}, {tz}")
 
     return fn
 
@@ -160,6 +163,30 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     return fn
 
+def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        GPU Function:
+                Y = X CONV W (Using padding, stride and dilaton attribute
+    """
+    x_io = node.inputs["X"]
+    w_io = node.inputs["W"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    w = w_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    stride = node.get_attr("strides")[0]  # Assuming same stride in all directions
+    padding = node.get_attr("pads")[0]  # Assuming same padding in all directions
+    dilations = node.get_attr("dilations")[0]  # Assuming same padding in all directions
+
+    def fn():
+        cupy.copyto(y, (gputils.convolution_2d(x, w, stride=stride, pad=padding, dilate=dilations)).array)
+        #logging.log(logging.INFO, f"CONVOP -->  {y}")
+
+    return fn
+
 def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     """ 
@@ -176,6 +203,25 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         parray.copy(y, np.maximum(x, 0))
+
+    return fn
+
+def relu_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = RELU(X)
+                max (x, 0)
+    """
+
+    x_io = node.inputs["X"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    def fn():
+        cupy.copyto(y, cupy.maximum(x, 0))
 
     return fn
 
@@ -219,6 +265,29 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
                         Y[m, i, j, c] = np.amax(xi)
         Y = Y.transpose(0, 3, 1, 2)
         parray.copy(y, Y)
+
+    return fn
+
+def maxpool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = MAXPOOL(X) (Using padding, stride and pool kernel size)
+                --> Propagate maximum value in the kernel window
+    """
+
+    x_io = node.inputs["X"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+ 
+    stride = (node.get_attr("strides"))[0]  # Assuming same stride in all directions
+    padding = (node.get_attr("pads"))[0]  # Assuming same padding in all directions
+    kernel_shape = node.get_attr("kernel_shape")
+
+    def fn():
+        cupy.copyto(y, (chainer.functions.max_pooling_2d(x, kernel_shape, stride=stride, pad=0, return_indices=False)).array)
 
     return fn
 
@@ -276,6 +345,58 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     return fn
 
+def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = gamma * x_hat + beta
+                        where:
+                                x_hat = (x - r_mean)/sqrt(r_variance + epsilon)
+                        & r_mean and r_variance are running mean & variance
+                                
+                                r_mean = momentum * training_mean + (1 - momentum) * calculated mean
+                                r_variance = momentum * training_variance + (1 - momentum) * calculated variance
+    """
+
+    x_io = node.inputs["X"]
+    gamma_io = node.inputs["scale"]
+    beta_io = node.inputs["B"]
+    mean_io = node.inputs["mean"]
+    var_io = node.inputs["var"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    gamma = gamma_io.get_data(alloc_map)
+    beta = beta_io.get_data(alloc_map)
+    mean = mean_io.get_data(alloc_map)
+    var = var_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    epsilon = node.get_attr("epsilon")
+    momentum = node.get_attr("momentum")
+    spatial = node.get_attr("spatial")
+
+    def fn():
+        N, C, H, W = x.shape
+        # mini-batch mean
+        mean_batch = cupy.mean(x, axis=(0, 2, 3))
+        mean_moving = (mean_batch * (1 - momentum)) + (mean * momentum)
+        # mini-batch variance
+        variance_batch = cupy.mean(
+            (x - mean_batch.reshape((1, C, 1, 1))) ** 2, axis=(0, 2, 3)
+        )
+        variance_moving = (variance_batch * (1 - momentum)) + (var * momentum)
+        # normalize
+        x_hat = (
+            (x - cupy.reshape(mean_moving, (1, C, 1, 1)))
+            * 1.0
+            / cupy.sqrt(cupy.reshape(variance_moving, (1, C, 1, 1)) + epsilon)
+        )
+        # scale and shift
+        out = cupy.reshape(gamma, (1, C, 1, 1)) * x_hat + cupy.reshape(beta, (1, C, 1, 1))
+        cupy.copyto(y, out)
+
+    return fn
 
 def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
@@ -302,6 +423,31 @@ def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[],
     return fn
 
 
+def globalAveragePool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = GLOBAL_AVERAGE_POOL(X)
+                --> CONVE NCHW to NC11 (Average on HW dimensions)
+    """
+
+    x_io = node.inputs["X"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    def fn():
+        out = cupy.empty([x.shape[0], x.shape[1], 1, 1])
+        for n in cupy.arange(0, x.shape[0]):
+            for c in cupy.arange(0, x.shape[1]):
+                out[n, c, 0, 0] = cupy.average(x[n, c, :, :])
+
+        cupy.copyto(y, out)
+
+    return fn
+
+
 def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     """ 
@@ -318,6 +464,25 @@ def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         parray.copy(y, x.reshape(x.shape[0], -1))
+
+    return fn
+
+def flatten_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = FLATTEN(X)
+                --> Convert 4D 'X' to 2D 'Y'
+    """
+
+    x_io = node.inputs["input"]
+    y_io = node.outputs["output"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    def fn():
+        cupy.copyto(y, cupy.reshape(x, (x.shape[0], -1)))
 
     return fn
 
@@ -357,3 +522,40 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
         parray.copy(y, alpha * (xt @ wt) + beta * b)
 
     return fn
+
+def gemm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """ 
+        Function:
+                Y = alpha*(X @ W) + beta*b
+    """
+
+    x_io = node.inputs["A"]
+    w_io = node.inputs["B"]
+    b_io = node.inputs["C"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    w = w_io.get_data(alloc_map)
+    b = b_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    alpha = node.get_attr("alpha")
+    beta = node.get_attr("beta")
+    transX = node.get_attr("transA")
+    transW = node.get_attr("transB")
+
+    def fn():
+        if transX == 1:
+            xt = cupy.transpose(x)
+        else:
+            xt = x
+        if transW == 1:
+            wt = cupy.transpose(w)
+        else:
+            wt = w
+
+        cupy.copyto(y, alpha * (xt @ wt) + beta * b)
+
+    return fn
+

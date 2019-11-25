@@ -116,7 +116,7 @@ def place_n_opt(
 ) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
-        if node.operator == ops.CONV:
+        if node.operator == ops.MAXPOOL:
             node.device_type = "cpu"
             node.device_id = 0
         else:
@@ -192,19 +192,40 @@ def build_kernel(
         return kernels.copy(node, alloc_map, config)
 
     if oper == ops.CONV:
-        return kernels.conv_cpu(node, alloc_map, config)
+        if node.device_type == "cpu":
+            return kernels.conv_cpu(node, alloc_map, config)
+        else:
+            return kernels.conv_gpu(node, alloc_map, config)
     if oper == ops.BATCH_NORM:
-        return kernels.batchnorm_cpu(node, alloc_map, config)
+        if node.device_type == "cpu":
+            return kernels.batchnorm_cpu(node, alloc_map, config)
+        else:
+            return kernels.batchnorm_gpu(node, alloc_map, config)
     if oper == ops.RELU:
-        return kernels.relu_cpu(node, alloc_map, config)
+        if node.device_type == "cpu":
+            return kernels.relu_cpu(node, alloc_map, config)
+        else:
+            return kernels.relu_gpu(node, alloc_map, config)
     if oper == ops.MAXPOOL:
-        return kernels.maxpool_cpu(node, alloc_map, config)
+        if node.device_type == "cpu":
+            return kernels.maxpool_cpu(node, alloc_map, config)
+        else:
+            return kernels.maxpool_gpu(node, alloc_map, config)
     if oper == ops.GLOBALAVERAGEPOOL:
-        return kernels.globalAveragePool_cpu(node, alloc_map, config)
+        if node.device_type == "cpu":
+            return kernels.globalAveragePool_cpu(node, alloc_map, config)
+        else:
+            return kernels.globalAveragePool_gpu(node, alloc_map, config)
     if oper == ops.FLATTEN:
-        return kernels.flatten_cpu(node, alloc_map, config)
+        if node.device_type == "cpu":
+            return kernels.flatten_cpu(node, alloc_map, config)
+        else:
+            return kernels.flatten_gpu(node, alloc_map, config)
     if oper == ops.GEMM:
-        return kernels.gemm_cpu(node, alloc_map, config)
+        if node.device_type == "cpu":
+            return kernels.gemm_cpu(node, alloc_map, config)
+        else:
+            return kernels.gemm_gpu(node, alloc_map, config)
 
     raise ValueError(f"Operator {oper} not supported")
 
