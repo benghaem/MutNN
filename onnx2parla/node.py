@@ -1,10 +1,3 @@
-def node_stringizer(value):
-    if isinstance(value, Node):
-        return value.operator + "_" + str(value.device_type)
-    else:
-        return str(value)
-
-
 class Node:
     def __init__(self, node_id, operator, inputs, outputs, attrs, instance_id):
 
@@ -35,7 +28,7 @@ class Node:
                 break
 
         if name_to_replace is None:
-            raise ValueError(f"buffer {buf_name} is not used as input for {self}")
+            raise ValueError(f"buffer {buf_name} is not an input for {self}")
 
         self.inputs[name_to_replace] = new_io
 
@@ -48,15 +41,17 @@ class Node:
     def get_output_name(self, out):
         return self.outputs[out].name
 
-    def get_attr(self, attr):
-        return self.attrs[attr]
+    def get_attr(self, attr, default=None):
+        return self.attrs.get(attr, default)
 
     def set_attr(self, attr, value):
         self.attrs[attr] = value
         return True
 
     def __str__(self):
-        return f"[{self.node_id}@{self.device_type}.{self.device_id}] {self.operator}"
+        return (
+            f"[{self.node_id}@{self.device_type}.{self.device_id}]" f" {self.operator}"
+        )
 
     def pretty_print(self):
         print(self)
@@ -71,7 +66,28 @@ class Node:
             print("\t", a)
 
 
+def node_stringizer(value):
+
+    """
+    Support function for networkx graph export
+    """
+
+    if isinstance(value, Node):
+        return value.operator + "_" + str(value.device_type)
+    else:
+        return str(value)
+
+
 class InOut:
+
+    """
+    Represents an undirected graph edge and an associated buffer
+    for data
+
+    Static data is stored directly in the IO while dynamic data must
+    be looked up in the alloc map
+    """
+
     def __init__(self, name, kind, data, shape):
         self.name = name
         self.kind = kind
@@ -79,6 +95,14 @@ class InOut:
         self.shape = shape
 
     def get_data(self, alloc_map):
+
+        """
+        Get the actual data associated with the IO
+
+        Static data is accessed directly while pointer and
+        dynamic data is looked up in the alloc map
+        """
+
         if self.kind == "pointer":
             return alloc_map[self.name]
         if self.kind == "dynamic":

@@ -1,34 +1,21 @@
 import onnx
 
-onnx_conversion_info = {"Add":
-                        {"in": ["A", "B"],
-                         "out": ["C"]},
-                        "Conv":
-                        {"in": ["X", "W", "B"],
-                         "out": ["Y"]},
-                        "BatchNormalization":
-                        {"in": ["X", "scale", "B", "mean", "var"],
-                         "out": ["Y", "mean", "var",
-                                 "saved_mean", "saved_var"]},
-                        "Flatten":
-                        {"in": ["input"],
-                         "out": ["output"]},
-                        "Gemm":
-                        {"in": ["A", "B", "C"],
-                         "out": ["Y"]},
-                        "GlobalAveragePool":
-                        {"in": ["X"],
-                         "out": ["Y"]},
-                        "MaxPool":
-                        {"in": ["X"],
-                         "out": ["Y", "Indices"]},
-                        "Relu":
-                        {"in": ["X"],
-                         "out": ["Y"]},
-                        "Reshape":
-                        {"in": ["data", "shape"],
-                         "out": ["reshaped"]},
-                        }
+onnx_conversion_info = {
+    "Add": {"in": ["A", "B"], "out": ["C"]},
+    "Conv": {"in": ["X", "W", "B"], "out": ["Y"]},
+    "Transpose": {"in": ["data"], "out": ["transposed"]},
+    "MatMul": {"in": ["A", "B"], "out": ["Y"]},
+    "BatchNormalization": {
+        "in": ["X", "scale", "B", "mean", "var"],
+        "out": ["Y", "mean", "var", "saved_mean", "saved_var"],
+    },
+    "Flatten": {"in": ["input"], "out": ["output"]},
+    "Gemm": {"in": ["A", "B", "C"], "out": ["Y"]},
+    "GlobalAveragePool": {"in": ["X"], "out": ["Y"]},
+    "MaxPool": {"in": ["X"], "out": ["Y", "Indices"]},
+    "Relu": {"in": ["X"], "out": ["Y"]},
+    "Reshape": {"in": ["data", "shape"], "out": ["reshaped"]},
+}
 
 
 def get_op_input_info(op):

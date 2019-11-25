@@ -1,6 +1,6 @@
 import onnx
-import onnx.utils
 from onnx import numpy_helper
+import onnx.utils
 
 from node import InOut, Node
 import operators as ops
@@ -15,6 +15,10 @@ import logging
 
 
 def onnx_type_to_shape(type_obj, batch_size):
+
+    """
+    Convert an onnx type construct to a shape tuple
+    """
 
     shape_dims = []
     for dim in type_obj.tensor_type.shape.dim:
@@ -36,7 +40,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     value_info = {}
     io_map = {}
 
-    # this will capture all of the graph intializers
+    # this will capture all of the graph
     for init in polished_model.graph.initializer:
         initializers[init.name] = init
         logging.log(logging.DEBUG, f"Registered initializer: {init.name}")
@@ -50,7 +54,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     # this captures the graph output
     for vi in polished_model.graph.output:
         value_info[vi.name] = vi
-        logging.log(logging.DEBUG, f"Registered value info: {vi.name} (output)")
+        logging.log(logging.DEBUG, f"Registered value info: {vi.name} (out)")
 
     # this captures all model inputs
     for inp in polished_model.graph.input:
@@ -77,8 +81,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
             new_io = InOut(out, None, None, None)
             new_io.kind = "pointer"
             new_io.data = None
-            new_io.shape = onnx_type_to_shape(value_info[out].type,
-                                              config.batch_size)
+            new_io.shape = onnx_type_to_shape(value_info[out].type, config.batch_size)
             io_map[out] = new_io
             logging.log(logging.DEBUG, f"Built IO: {new_io}")
 
@@ -100,8 +103,9 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     # attach a load node for each of the dynamic inputs
     for dyninp_vi in polished_model.graph.input:
         if dyninp_vi.name not in initializers:
-            built_node = build_load_node(dyninp_vi.name, io_map, usage_map,
-                                         node_id, config.batch_size)
+            built_node = build_load_node(
+                dyninp_vi.name, io_map, usage_map, node_id, config.batch_size
+            )
             graph.add_node(node_id)
             graph.nodes[node_id]["node"] = built_node
 
@@ -142,7 +146,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
         source = info["def"][0]
         for use in info["use"]:
             graph.add_edge(source, use, buffer=name)
-            logging.log(logging.DEBUG, f"Added edge {source} -> {use} via {name}")
+            logging.log(logging.DEBUG, f"Added edge {source} -> {use}" f" via {name}")
 
     # we sanity check that there are no nodes that have not been connected to
     # the graph
@@ -157,6 +161,14 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
 
 
 def build_node(onnx_node, io_map, usage_map, node_id):
+
+    """
+    Convert an onnx node to an internal node
+    with correctly labeled inputs and outputs as well as
+    the full set of attributes
+
+    Registers IO usage in the usage map
+    """
 
     input_names = onnx_convert.get_op_input_info(onnx_node.op_type)
     output_names = onnx_convert.get_op_output_info(onnx_node.op_type)
@@ -184,6 +196,11 @@ def build_node(onnx_node, io_map, usage_map, node_id):
 
 
 def build_store_node(target, io_map, usage_map, node_id):
+
+    """
+    Build a new store node and log usage in the map
+    """
+
     inputs = {"X": io_map[target]}
     outputs = {}
     attrs = {}
@@ -194,10 +211,14 @@ def build_store_node(target, io_map, usage_map, node_id):
 
 
 def build_load_node(target, io_map, usage_map, node_id, batch_size):
+
+    """
+    Build a new load node and log usage in the map
+    """
+
     inputs = {}
     outputs = {"Z": io_map[target]}
-    attrs = {"width": batch_size,
-             "batch_id": 0}
+    attrs = {"width": batch_size, "batch_id": 0}
     new_node = Node(node_id, ops.O2P_LOAD, inputs, outputs, attrs, 0)
     usage_map[target]["def"].append(node_id)
 
@@ -205,11 +226,11 @@ def build_load_node(target, io_map, usage_map, node_id, batch_size):
 
 
 if __name__ == "__main__":
-    import sys
-
     logging.basicConfig(filename="onnx_frontend.log", level=logging.DEBUG)
 
-    g = from_onnx(sys.argv[1])
+    config = Config(None, None, 4, 4)
+
+    g = from_onnx("../example.onnx", config)
 
     nx.write_gml(g, "frontend.gml", str)
 
