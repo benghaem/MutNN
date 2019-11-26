@@ -120,8 +120,8 @@ def place_n_opt(
 ) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
-        if node.operator == ops.MAXPOOL:
-            node.device_type = "cpu"
+        if node.operator == ops.CONV:
+            node.device_type = "gpu"
             node.device_id = 0
         else:
             node.device_type = "cpu"

@@ -35,6 +35,13 @@ class Node:
     def get_device(self):
         return (self.device_type, self.device_id)
 
+    def get_input(self, inp):
+        real_io = self.inputs.get(inp)
+        if not real_io:
+            fake_io = InOut("__fake","__fake",None,None)
+            return fake_io
+        return real_io
+
     def get_input_name(self, inp):
         return self.inputs[inp].name
 
