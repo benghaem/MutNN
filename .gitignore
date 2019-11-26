@@ -3,7 +3,9 @@ __pycache__
 .pytype
 .mypy_cache
 .vscode
+*.egg-info
 
 *.log
 *.gml
 test_models/
+
