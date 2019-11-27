@@ -7,6 +7,7 @@ from onnx2parla import kernels
 from onnx2parla import operators as ops
 
 import chainer
+import torch
 
 
 class TestCPUKernels(unittest.TestCase):
@@ -45,13 +46,13 @@ class TestCPUKernels(unittest.TestCase):
 
         c = Config(None, None, 4, 4)
 
-        io_in = InOut("in", "static", np.ndarray((4, 3, 22, 22)), (4))
+        io_in = InOut("in", "static", np.ndarray((4, 3, 22, 22)), (4, 3, 22, 22))
 
-        io_kern = InOut("kern", "static", np.ndarray((1, 3, 3, 3)), (4))
+        io_kern = InOut("kern", "static", np.ndarray((1, 3, 3, 3)), (1, 3, 3, 3))
 
-        io_bias = InOut("bias", "static", np.ndarray((1)), (4))
+        io_bias = InOut("bias", "static", np.ndarray((1)), (1))
 
-        io_out = InOut("out", "dynamic", None, (4))
+        io_out = InOut("out", "dynamic", None, (4, 1, 10, 10))
 
         i = np.random.random(np.shape(io_in.data))
         w = np.random.random(np.shape(io_kern.data))
@@ -71,27 +72,24 @@ class TestCPUKernels(unittest.TestCase):
         fn = kernels.conv_cpu(n, am, c)
 
         # chainer with onnx default
-        o = chainer.functions.convolution_2d(i, w, b=b,
-                                             stride=(1,1),
-                                             pad=(0,0),
-                                             dilate=(1,1),
-                                             groups=1)
+        o = chainer.functions.convolution_2d(
+            i, w, b=b, stride=(1, 1), pad=(0, 0), dilate=(1, 1), groups=1
+        ).array
         fn()
 
-        np.testing.assert_array_almost_equal(o, io_out.data)
-
+        np.testing.assert_array_almost_equal(o, io_out.get_data(am))
 
     def test_conv_default_attrs(self):
 
         c = Config(None, None, 4, 4)
 
-        io_in = InOut("in", "static", np.ndarray((4, 3, 22, 22)), (4))
+        io_in = InOut("in", "static", np.ndarray((4, 3, 22, 22)), (4, 3, 22, 22))
 
-        io_kern = InOut("kern", "static", np.ndarray((1, 3, 3, 3)), (4))
+        io_kern = InOut("kern", "static", np.ndarray((1, 3, 3, 3)), (1, 3, 3, 3))
 
-        io_bias = InOut("bias", "static", np.ndarray((1)), (4))
+        io_bias = InOut("bias", "static", np.ndarray((1)), (1))
 
-        io_out = InOut("out", "dynamic", None, (4))
+        io_out = InOut("out", "dynamic", None, (4, 1, 10, 10))
 
         i = np.random.random(np.shape(io_in.data))
         w = np.random.random(np.shape(io_kern.data))
@@ -105,37 +103,36 @@ class TestCPUKernels(unittest.TestCase):
         am = {"out": np.ndarray((4, 1, 20, 20))}
         inp = {"X": io_in, "W": io_kern, "B": io_bias}
         oup = {"Y": io_out}
-        attrs = {"dilations": (1,1),
-                 "group": (1),
-                 "kernel_shape": (3,3),
-                 "pads": (0,0,0,0),
-                 "strides": (1,1,1,1)}
+        attrs = {
+            "dilations": (1, 1),
+            "group": (1),
+            "kernel_shape": (3, 3),
+            "pads": (0, 0, 0, 0),
+            "strides": (1, 1, 1, 1),
+        }
 
         n = Node(0, ops.CONV, inp, oup, attrs, 0)
         fn = kernels.conv_cpu(n, am, c)
 
         # chainer with previous config
-        o = chainer.functions.convolution_2d(i, w, b=b,
-                                             stride=(1,1),
-                                             pad=(0,0),
-                                             dilate=(1,1),
-                                             groups=1)
+        o = chainer.functions.convolution_2d(
+            i, w, b=b, stride=(1, 1), pad=(0, 0), dilate=(1, 1), groups=1
+        ).array
         fn()
 
-        np.testing.assert_array_almost_equal(o, io_out.data)
-
+        np.testing.assert_array_almost_equal(o, io_out.get_data(am))
 
     def test_conv_stride(self):
 
         c = Config(None, None, 4, 4)
 
-        io_in = InOut("in", "static", np.ndarray((4, 3, 22, 22)), (4))
+        io_in = InOut("in", "static", np.ndarray((4, 3, 22, 22)), (4, 3, 22, 22))
 
-        io_kern = InOut("kern", "static", np.ndarray((1, 3, 3, 3)), (4))
+        io_kern = InOut("kern", "static", np.ndarray((1, 3, 3, 3)), (1, 3, 3, 3))
 
-        io_bias = InOut("bias", "static", np.ndarray((1)), (4))
+        io_bias = InOut("bias", "static", np.ndarray((1)), (1))
 
-        io_out = InOut("out", "dynamic", None, (4))
+        io_out = InOut("out", "dynamic", None, (4, 1, 10, 10))
 
         i = np.random.random(np.shape(io_in.data))
         w = np.random.random(np.shape(io_kern.data))
@@ -149,26 +146,186 @@ class TestCPUKernels(unittest.TestCase):
         am = {"out": np.ndarray((4, 1, 10, 10))}
         inp = {"X": io_in, "W": io_kern, "B": io_bias}
         oup = {"Y": io_out}
-        attrs = {"dilations": (1,1),
-                 "group": (1),
-                 "kernel_shape": (3,3),
-                 "pads": (0,0,0,0),
-                 "strides": (2,2,2,2)}
+        attrs = {
+            "dilations": (1, 1),
+            "group": (1),
+            "kernel_shape": (3, 3),
+            "pads": (0, 0, 0, 0),
+            "strides": (2, 2, 2, 2),
+        }
 
         n = Node(0, ops.CONV, inp, oup, attrs, 0)
         fn = kernels.conv_cpu(n, am, c)
 
         # chainer with previous config
-        o = chainer.functions.convolution_2d(i, w, b=b,
-                                             stride=(2,2),
-                                             pad=(0,0),
-                                             dilate=(1,1),
-                                             groups=1)
+        o = chainer.functions.convolution_2d(
+            i, w, b=b, stride=(2, 2), pad=(0, 0), dilate=(1, 1), groups=1
+        ).array
         fn()
 
-        np.testing.assert_array_almost_equal(o, io_out.data)
+        np.testing.assert_array_almost_equal(o, io_out.get_data(am))
 
+    def test_maxpool_defaults(self):
 
+        B = 4
+        C = 4
+        H = 22
+        W = 22
+
+        K_size = (3, 3)
+
+        in_shape = (B, C, H, W)
+        out_shape = (B, C, 20, 20)
+
+        c = Config(None, None, B, B)
+
+        io_in = InOut("in", "static", np.ndarray(in_shape), in_shape)
+        io_out = InOut("out", "dynamic", None, out_shape)
+
+        i = np.random.random(np.shape(io_in.data))
+
+        np.copyto(io_in.data, i)
+
+        ref_mod = torch.nn.MaxPool2d(
+            K_size, stride=1, dilation=1, padding=0, ceil_mode=False
+        )
+
+        torch_i = torch.tensor(i)
+        ref = ref_mod(torch_i).numpy()
+
+        am = {"out": np.ndarray(out_shape)}
+        inp = {"X": io_in}
+        oup = {"Y": io_out}
+        attrs = {"kernel_shape": K_size}
+
+        n = Node(0, ops.MAXPOOL, inp, oup, attrs, 0)
+
+        test_fn = kernels.maxpool_cpu(n, am, c)
+
+        test_fn()
+
+        np.testing.assert_array_almost_equal(io_out.get_data(am), ref)
+
+    def test_maxpool_big_stride(self):
+
+        B = 4
+        C = 4
+        H = 22
+        W = 22
+
+        K_size = (3, 3)
+
+        in_shape = (B, C, H, W)
+        out_shape = (B, C, 7, 7)
+
+        c = Config(None, None, B, B)
+
+        io_in = InOut("in", "static", np.ndarray(in_shape), in_shape)
+        io_out = InOut("out", "dynamic", None, out_shape)
+
+        i = np.random.random(np.shape(io_in.data))
+
+        np.copyto(io_in.data, i)
+
+        ref_mod = torch.nn.MaxPool2d(
+            K_size, stride=3, dilation=1, padding=0, ceil_mode=False
+        )
+
+        torch_i = torch.tensor(i)
+        ref = ref_mod(torch_i).numpy()
+
+        am = {"out": np.ndarray(out_shape)}
+        inp = {"X": io_in}
+        oup = {"Y": io_out}
+        attrs = {"kernel_shape": K_size, "strides": (3, 3, 3, 3)}
+
+        n = Node(0, ops.MAXPOOL, inp, oup, attrs, 0)
+
+        test_fn = kernels.maxpool_cpu(n, am, c)
+
+        test_fn()
+
+        np.testing.assert_array_almost_equal(io_out.get_data(am), ref)
+
+    def test_batchnorm_defaults(self):
+
+        B = 4
+        C = 4
+        H = 22
+        W = 22
+
+        K_size = (3, 3)
+
+        in_shape = (B, C, H, W)
+        out_shape = (B, C, H, W)
+
+        c = Config(None, None, B, B)
+
+        io_in = InOut("in", "static", np.ndarray(in_shape), in_shape)
+        io_scale = InOut("scale", "static", np.ndarray((C)), (C))
+        io_B = InOut("B", "static", np.ndarray((C)), (C))
+        io_mean = InOut("mean", "static", np.ndarray((C)), (C))
+        io_var = InOut("var", "static", np.ndarray((C)), (C))
+        io_out = InOut("out", "dynamic", None, out_shape)
+
+        np.random.seed(123)
+
+        i = np.random.random(np.shape(io_in.data))
+        s = np.random.random(np.shape(io_scale.data))
+        b = np.random.random(np.shape(io_B.data))
+        mean = np.random.random(np.shape(io_mean.data))
+        var = np.random.random(np.shape(io_var.data))
+
+        np.copyto(io_in.data, i)
+        np.copyto(io_scale.data, s)
+        np.copyto(io_B.data, b)
+        np.copyto(io_mean.data, mean)
+        np.copyto(io_var.data, var)
+
+        eps = 1e-05
+        momentum_torch = 0.5
+        momentum_test = 0.4
+
+        torch_i = torch.tensor(i)
+        torch_w = torch.tensor(s)
+        torch_b = torch.tensor(b)
+        torch_mean = torch.tensor(mean)
+        torch_var = torch.tensor(var)
+
+        ref = torch.nn.functional.batch_norm(
+            torch_i,
+            torch_mean,
+            torch_var,
+            weight=torch_w,
+            bias=torch_b,
+            training=False,
+            momentum=momentum_torch,
+            eps=eps,
+        ).numpy()
+
+        ref_chainer = chainer.functions.batch_normalization(
+            i,
+            s,
+            b,
+            eps=eps,
+            running_mean=mean,
+            running_var=var,
+            decay=momentum_test,
+        ).array
+
+        am = {"out": np.ndarray(out_shape)}
+        inp = {"X": io_in, "scale": io_scale, "B": io_B, "mean": io_mean, "var": io_var}
+        oup = {"Y": io_out}
+        attrs = {"epsilon": eps, "momentum": momentum_test}
+
+        n = Node(0, ops.BATCH_NORM, inp, oup, attrs, 0)
+
+        test_fn = kernels.batchnorm_cpu(n, am, c)
+
+        test_fn()
+
+        #np.testing.assert_array_almost_equal(ref, ref_chainer)
+        np.testing.assert_array_almost_equal(io_out.get_data(am), ref_chainer)
 
 
 if __name__ == "__main__":

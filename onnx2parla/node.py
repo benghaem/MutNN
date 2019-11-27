@@ -16,6 +16,7 @@ class Node:
         self.device_type = None
         self.device_id = None
         self.last_task_obj = None
+        self.last_launch_batch_id = -1
 
     def get_operator(self):
         return self.operator

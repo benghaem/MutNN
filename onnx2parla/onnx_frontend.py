@@ -63,7 +63,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
         # directly convert onnx initializers to static IOs in the graph
         if inp.name in initializers:
             new_io.kind = "static"
-            new_io.data = numpy_helper.to_array(initializers[inp.name])
+            new_io.data = numpy_helper.to_array(initializers[inp.name]).astype(np.float32)
             new_io.shape = np.shape(new_io.data)
 
         # pointers will be allocated later by the allocate pass

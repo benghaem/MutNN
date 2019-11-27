@@ -98,6 +98,8 @@ def add_cpu(
 
     def fn():
         parray.copy(z, x + y)
+        t = z[0][0][0][0:10]
+        logging.log(logging.INFO, f"add: {t}")
 
     return fn
 
@@ -146,10 +148,12 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     """
     x_io = node.inputs["X"]
     w_io = node.inputs["W"]
+    b_io = node.get_input("B")
     y_io = node.outputs["Y"]
 
     x = x_io.get_data(alloc_map)
     w = w_io.get_data(alloc_map)
+    b = b_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
 
     # Assuming same stride in all directions
@@ -161,15 +165,18 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     ]  # Assuming same padding in all directions
 
     def fn():
-        xt = x.transpose(0, 2, 3, 1)
-        wt = w.transpose(2, 3, 1, 0)
         parray.copy(
             y,
             (
-                utils.conv2D(
-                    xt, wt, stride=stride, pad=padding, dilation=dilations
-                ).transpose(0, 3, 1, 2)
-            ),
+                chainer.functions.convolution_2d(
+                    x,
+                    w,
+                    b=b,
+                    stride=stride,
+                    pad=padding,
+                    dilate=dilations,
+                )
+            ).array,
         )
 
     return fn
@@ -200,7 +207,12 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             y,
             (
                 gputils.convolution_2d(
-                    x.astype(cupy.float32), w, b=b.astype(cupy.float32), stride=stride, pad=padding, dilate=dilations
+                    x,
+                    w,
+                    b,
+                    stride=stride,
+                    pad=padding,
+                    dilate=dilations,
                 )
             ).array,
         )
@@ -225,6 +237,9 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         parray.copy(y, np.maximum(x, 0))
+        t = y[0][0][:][:]
+        logging.log(logging.INFO, f"relu: {t}")
+
 
     return fn
 
@@ -359,24 +374,19 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     spatial = node.get_attr("spatial")
 
     def fn():
-        N, C, H, W = x.shape
-        # mini-batch mean
-        mean_batch = np.mean(x, axis=(0, 2, 3))
-        mean_moving = (mean_batch * (1 - momentum)) + (mean * momentum)
-        # mini-batch variance
-        variance_batch = np.mean(
-            (x - mean_batch.reshape((1, C, 1, 1))) ** 2, axis=(0, 2, 3)
+
+        parray.copy(
+            y,
+            chainer.functions.batch_normalization(
+                x,
+                gamma,
+                beta,
+                eps=epsilon,
+                running_mean=mean,
+                running_var=var,
+                decay=momentum,
+            ).array,
         )
-        variance_moving = (variance_batch * (1 - momentum)) + (var * momentum)
-        # normalize
-        x_hat = (
-            (x - mean_moving.reshape((1, C, 1, 1)))
-            * 1.0
-            / np.sqrt(variance_moving.reshape((1, C, 1, 1)) + epsilon)
-        )
-        # scale and shift
-        out = gamma.reshape((1, C, 1, 1)) * x_hat + beta.reshape((1, C, 1, 1))
-        parray.copy(y, out)
 
     return fn
 
@@ -413,26 +423,19 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     spatial = node.get_attr("spatial")
 
     def fn():
-        N, C, H, W = x.shape
-        # mini-batch mean
-        mean_batch = cupy.mean(x, axis=(0, 2, 3))
-        mean_moving = (mean_batch * (1 - momentum)) + (mean * momentum)
-        # mini-batch variance
-        variance_batch = cupy.mean(
-            (x - mean_batch.reshape((1, C, 1, 1))) ** 2, axis=(0, 2, 3)
+
+        cupy.copyto(
+            y,
+            chainer.functions.batch_normalization(
+                x,
+                gamma,
+                beta,
+                eps=epsilon,
+                running_mean=mean,
+                running_var=var,
+                decay=momentum,
+            ).array,
         )
-        variance_moving = (variance_batch * (1 - momentum)) + (var * momentum)
-        # normalize
-        x_hat = (
-            (x - cupy.reshape(mean_moving, (1, C, 1, 1)))
-            * 1.0
-            / cupy.sqrt(cupy.reshape(variance_moving, (1, C, 1, 1)) + epsilon)
-        )
-        # scale and shift
-        out = cupy.reshape(gamma, (1, C, 1, 1)) * x_hat + cupy.reshape(
-            beta, (1, C, 1, 1)
-        )
-        cupy.copyto(y, out)
 
     return fn
 

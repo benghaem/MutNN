@@ -15,6 +15,7 @@ from node import Node, InOut
 import kernels
 from config import Config
 import operators as ops
+from collections import deque
 
 
 def build_copy_node(in_io, out_io, node_id):
@@ -121,7 +122,7 @@ def place_n_opt(
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
         if node.operator == ops.CONV:
-            node.device_type = "gpu"
+            node.device_type = "cpu"
             node.device_id = 0
         else:
             node.device_type = "cpu"
@@ -245,22 +246,49 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             batches = math.ceil(config.dataset_len / config.batch_size)
 
             for batch_id in range(batches):
-                for gnode in nx.bfs_tree(graph, 0).nodes():
+
+                # initialize with root of tree
+                q = deque([0])
+
+                while len(q) > 0:
+                    gnode = q.popleft()
+
                     logging.log(logging.INFO, "execute node: {}".format(gnode))
 
                     node = graph.nodes[gnode]["node"]
 
                     deps = []
+                    parents_have_launched = True
+
                     # get parents and get children
                     for gparent in graph.predecessors(gnode):
-                        lto = graph.nodes[gparent]["node"].last_task_obj
-                        if lto:
-                            deps.append(lto)
+                        parent = graph.nodes[gparent]["node"]
+
+                        if parent.last_launch_batch_id != batch_id:
+                            # need to wait until all deps are launched
+                            # break out early
+                            parents_have_launched = False
+                            break
+
+                        lto = parent.last_task_obj
+                        deps.append(lto)
+                        assert lto
+
+                    if not parents_have_launched:
+                        q.append(gnode)
+                        continue
 
                     for gchild in graph.successors(gnode):
-                        lto = graph.nodes[gchild]["node"].last_task_obj
-                        if lto:
+                        # depend on children from previous batch, ignore none
+                        # for first batch
+                        if batch_id > 0:
+                            lto = graph.nodes[gchild]["node"].last_task_obj
                             deps.append(lto)
+                            assert lto
+
+                        # continue to progress down the tree
+                        if gchild not in q:
+                            q.append(gchild)
 
                     loc = None
                     if node.device_type == "cpu":
@@ -271,6 +299,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                     node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
                         node.fn
                     )
+                    node.last_launch_batch_id += 1
 
                     logging.log(logging.INFO, "---{}---".format(node.operator))
                     logging.log(logging.INFO, "launched {}".format(node.last_task_obj))

@@ -26,7 +26,8 @@ def random_data(start_idx, end_idx):
 
 
 def echo_store(arr):
-    logging.log(logging.INFO, f"stored: {arr}")
+    sm = sorted(zip(arr[0],range(len(arr[0]))),reverse=True)[0:5]
+    logging.log(logging.INFO, f"stored: {sm}")
 
 
 def debug_print_graph(graph):
