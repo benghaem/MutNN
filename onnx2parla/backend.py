@@ -121,7 +121,7 @@ def place_n_opt(
 ) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
-        if node.operator == ops.CONV:
+        if node.operator == ops.CONV or node.operator == ops.RELU:
             node.device_type = "gpu"
             node.device_id = 0
         else:
@@ -167,7 +167,7 @@ def allocate(
         for io in node.inputs.values():
             if io.kind == "static" and node.device_type == "gpu":
                 with cupy.cuda.Device(node.device_id):
-                    io.data = cupy.array(io.data, dtype=cupy.float32)
+                    io.data = cupy.asarray(io.data, dtype=cupy.float32)
     return
 
 
@@ -306,10 +306,10 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                             q.append(gchild)
 
                     loc = None
-                    if node.device_type == "cpu":
-                        loc = pcpu.cpu(node.device_id)
-                    else:
-                        loc = pcuda.gpu(node.device_id)
+                    #if node.device_type == "cpu":
+                    loc = pcpu.cpu(node.device_id)
+                    #else:
+                    #loc = pcuda.gpu(node.device_id)
 
                     node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
                         node.fn

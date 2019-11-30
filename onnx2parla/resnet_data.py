@@ -16,10 +16,10 @@ def preprocess(img_data):
 
 def get_test(s, e):
     batch_size = e - s
-    d = imageio.imread("../torch_example/dog.jpg")
+    d = imageio.imread("input/dog.jpg")
     d = d.transpose(2,0,1)
     dp = preprocess(d)
-    dp = np.expand_dims(dp,0)
+    dp = np.tile(dp, (batch_size,1,1,1))
     #d = np.zeros((1,3,224,224))
     print(np.shape(dp))
     return dp
@@ -39,5 +39,6 @@ def store(x):
     print(x)
 
 def echo_top5(x):
-    t5 = sorted(zip(x[0],range(len(x[0]))),reverse=True)[0:5]
-    print(t5)
+    for batch_el in x:
+        t5 = sorted(zip(batch_el,range(len(batch_el))),reverse=True)[0:5]
+        print(t5)

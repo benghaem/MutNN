@@ -4,6 +4,7 @@ import parla.array as parray
 import logging
 import datetime
 
+import time
 import cupy
 
 
@@ -61,8 +62,44 @@ def copy(node: Node, alloc_map, config: Config):
             parray.copy(z,chainer.backends.cuda.to_cpu(x, stream=None))
 
         if tz == cupy.core.core.ndarray:  # to gpu
-            cupy.copyto(z,chainer.backends.cuda.to_gpu(x,
-                device=node.device_id, stream=None))
+            with cupy.cuda.Device(node.device_id):
+                tmp = cupy.asarray(x, dtype=cupy.float32)
+                cupy.copyto(z,tmp)
+                #cupy.copyto(z,chainer.backends.cuda.to_gpu(x,
+                #    device=node.device_id, stream=None))
+
+
+        # to gpu:
+
+        #og_shape = x.shape
+
+
+        #if tz == numpy.ndarray:  # to cpu
+        #    with cupy.cuda.Device(device=node.device_id):
+        #        arr_flat = x.reshape((-1))
+        #        z_flat = np.ndarray(arr_flat.shape)
+
+        #        for i, v in enumerate(arr_flat):
+        #            z_flat[i] = v
+
+        #        z_flat = z_flat.reshape(og_shape)
+
+        #        parray.copy(z,z_flat)
+
+
+        #if tz == cupy.core.core.ndarray:
+
+        #    arr_flat = x.reshape((-1))
+
+        #    with cupy.cuda.Device(device=node.device_id):
+        #        z_flat = cupy.ndarray(arr_flat.shape)
+
+        #        for i, v in enumerate(arr_flat):
+        #            z_flat[i] = v
+
+        #        z_flat = z_flat.reshape(og_shape)
+
+        #        cupy.copyto(z,z_flat)
 
         time_end = datetime.datetime.now()
         #logging.log(logging.INFO, f"done copy {z}, {tz}")
@@ -203,14 +240,17 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     def fn():
         time_st = datetime.datetime.now()
         #logging.log(logging.INFO, f"CONVOP got -->  {x} CONVOP")
-        cupy.copyto(
-            y,
-            (
-                chainer.functions.convolution_2d(
-                    x, w, b, stride=stride, pad=padding, dilate=dilations,
-                )
-            ).array,
-        )
+        with cupy.cuda.Device(node.device_id):
+            cupy.copyto(
+                y,
+                (
+                    chainer.functions.convolution_2d(
+                        x, w, b, stride=stride, pad=padding, dilate=dilations,
+                    )
+                ).array,
+            )
+
+            cupy.cuda.Device(node.device_id).synchronize()
         time_end = datetime.datetime.now()
         logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
         #logging.log(logging.INFO, f"CONVOP -->  {y} CONVOP")
