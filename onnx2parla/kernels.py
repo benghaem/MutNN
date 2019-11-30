@@ -2,6 +2,7 @@ import numpy as np
 import numpy
 import parla.array as parray
 import logging
+import datetime
 
 import cupy
 
@@ -54,13 +55,18 @@ def copy(node: Node, alloc_map, config: Config):
     tz = type(z)
 
     def fn():
-        if tz == numpy.ndarray:  # to cpu
-            np.copyto(z, cupy.asnumpy(x))
-        if tz == cupy.core.core.ndarray:  # to gpu
-            with cupy.cuda.Device(node.device_id):
-                cupy.copyto(z, cupy.asarray(x))
+        time_st = datetime.datetime.now()
 
-        # logging.log(logging.INFO, f"done copy {z}, {tz}")
+        if tz == numpy.ndarray:  # to cpu
+            parray.copy(z,chainer.backends.cuda.to_cpu(x, stream=None))
+
+        if tz == cupy.core.core.ndarray:  # to gpu
+            cupy.copyto(z,chainer.backends.cuda.to_gpu(x,
+                device=node.device_id, stream=None))
+
+        time_end = datetime.datetime.now()
+        #logging.log(logging.INFO, f"done copy {z}, {tz}")
+        logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id} {time_st} -> {time_end}")
 
     return fn
 
@@ -195,6 +201,8 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     dilations = node.get_attr("dilations")[0]  # Assuming same padding in all directions
 
     def fn():
+        time_st = datetime.datetime.now()
+        #logging.log(logging.INFO, f"CONVOP got -->  {x} CONVOP")
         cupy.copyto(
             y,
             (
@@ -203,7 +211,9 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
                 )
             ).array,
         )
-        # logging.log(logging.INFO, f"CONVOP -->  {y}")
+        time_end = datetime.datetime.now()
+        logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
+        #logging.log(logging.INFO, f"CONVOP -->  {y} CONVOP")
 
     return fn
 
@@ -269,6 +279,7 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     kernel_shape = node.get_attr("kernel_shape")
 
     def fn():
+        time_st = datetime.datetime.now()
         xt = x.transpose(0, 2, 3, 1)
         n_ex, in_rows, in_cols, nc_in = xt.shape
         (fr, fc), s, p = kernel_shape, stride, padding
@@ -289,6 +300,9 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
                         Y[m, i, j, c] = np.amax(xi)
         Y = Y.transpose(0, 3, 1, 2)
         parray.copy(y, Y)
+        time_end = datetime.datetime.now()
+        #logging.log(logging.INFO, f"MAXPOOL sent -->  {y} MAXPOOL")
+        logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
 
     return fn
 
@@ -359,6 +373,7 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
 
+        #logging.log(logging.INFO, f"BATCHNORM got -->  {x} BATCHNORM")
         parray.copy(
             y,
             chainer.functions.fixed_batch_normalization(

@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+import cupy
 
 from onnx2parla.node import Node, InOut
 from onnx2parla.config import Config
@@ -8,6 +9,55 @@ from onnx2parla import operators as ops
 
 import chainer
 import torch
+
+class TestGPUKernels(unittest.TestCase):
+
+    def test_copy(self):
+
+        c = Config(None, None, 4, 4)
+
+        size = (4,3,224,224)
+
+        io_in = InOut("in", "static", np.random.random(size), size)
+
+        io_gpu = InOut("gpu", "dynamic", None, size)
+
+        io_return = InOut("return", "dynamic", None, size)
+
+        with cupy.cuda.Device(0):
+            gpu_buffer = cupy.ndarray((size))
+
+        am = {"gpu": gpu_buffer,
+              "return": np.ndarray((size))}
+
+        inp_c0 = {"X": io_in}
+        oup_c0 = {"Z": io_gpu}
+
+
+        inp_c1 = {"X": io_gpu}
+        oup_c1 = {"Z": io_return}
+
+        c0 = Node(0, ops.O2P_COPY, inp_c0, oup_c0, {}, 0)
+        c0.device_id = 0
+        c1 = Node(0, ops.O2P_COPY, inp_c1, oup_c1, {}, 0)
+        c1.device_id = 0
+
+        fn_c0 = kernels.copy(c0, am, c)
+        fn_c1 = kernels.copy(c1, am, c)
+
+        #copy to gpu
+        fn_c0()
+
+        #execute +1
+        cupy.copyto(gpu_buffer,gpu_buffer + 1)
+
+        #copy back
+        fn_c1()
+
+        ref_plus_one = io_in.get_data(am) + 1
+
+        cupy.testing.assert_array_equal(io_gpu.get_data(am), ref_plus_one)
+        np.testing.assert_equal(io_return.get_data(am), ref_plus_one)
 
 
 class TestCPUKernels(unittest.TestCase):
@@ -303,14 +353,13 @@ class TestCPUKernels(unittest.TestCase):
             eps=eps,
         ).numpy()
 
-        ref_chainer = chainer.functions.batch_normalization(
+        ref_chainer = chainer.functions.fixed_batch_normalization(
             i,
             s,
             b,
+            mean,
+            var,
             eps=eps,
-            running_mean=mean,
-            running_var=var,
-            decay=momentum_test,
         ).array
 
         am = {"out": np.ndarray(out_shape)}
