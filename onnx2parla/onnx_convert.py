@@ -15,6 +15,8 @@ onnx_conversion_info = {
     "MaxPool": {"in": ["X"], "out": ["Y", "Indices"]},
     "Relu": {"in": ["X"], "out": ["Y"]},
     "Reshape": {"in": ["data", "shape"], "out": ["reshaped"]},
+    "Pad": {"in": ["data"], "out": ["output"]},
+    "AveragePool": {"in": ["X"], "out": ["Y"]}
 }
 
 

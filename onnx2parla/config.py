@@ -6,4 +6,4 @@ class Config:
         self.batch_size = batch_size
         self.dataset_len = dataset_len
 
-        # pnopt
+

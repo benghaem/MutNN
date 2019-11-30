@@ -5,6 +5,8 @@ BATCH_NORM = "BatchNormalization"
 RELU = "Relu"
 MAXPOOL = "MaxPool"
 GLOBALAVERAGEPOOL = "GlobalAveragePool"
+AVERAGE_POOL = "AveragePool"
+PAD = "Pad"
 FLATTEN = "Flatten"
 GEMM = "Gemm"
 

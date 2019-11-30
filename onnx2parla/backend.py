@@ -148,22 +148,26 @@ def allocate(
             # check successor
             if scc_node.device_type == "gpu":
                 with cupy.cuda.Device(scc_node.device_id):
-                    alloc_map[io_z.name] = cupy.ndarray(io_z.shape)
+                    alloc_map[io_z.name] = cupy.ndarray(io_z.shape,
+                            dtype=cupy.float32)
             else:
-                alloc_map[io_z.name] = np.ndarray(io_z.shape)
+                alloc_map[io_z.name] = np.ndarray(io_z.shape,
+                        dtype=np.float32)
         else:
             for io in node.outputs.values():
                 if io.kind == "pointer":
                     if node.device_type == "gpu":
                         with cupy.cuda.Device(node.device_id):
-                            alloc_map[io.name] = cupy.ndarray(io.shape)
+                            alloc_map[io.name] = cupy.ndarray(io.shape,
+                                    dtype=cupy.float32)
                     else:
-                        alloc_map[io.name] = np.ndarray(io.shape)
+                        alloc_map[io.name] = np.ndarray(io.shape,
+                                dtype=np.float32)
 
         for io in node.inputs.values():
             if io.kind == "static" and node.device_type == "gpu":
                 with cupy.cuda.Device(node.device_id):
-                    io.data = cupy.array(io.data)
+                    io.data = cupy.array(io.data, dtype=cupy.float32)
     return
 
 
@@ -225,6 +229,17 @@ def build_kernel(
             return kernels.globalAveragePool_cpu(node, alloc_map, config)
         else:
             return kernels.globalAveragePool_gpu(node, alloc_map, config)
+    if oper == ops.AVERAGE_POOL:
+        if node.device_type == "cpu":
+            return kernels.average_pool_cpu(node, alloc_map, config)
+        else:
+            raise NotImplementedError()
+
+    if oper == ops.PAD:
+        if node.device_type == "cpu":
+            return kernels.pad_cpu(node, alloc_map, config)
+        else:
+            raise NotImplementedError()
     if oper == ops.FLATTEN:
         if node.device_type == "cpu":
             return kernels.flatten_cpu(node, alloc_map, config)

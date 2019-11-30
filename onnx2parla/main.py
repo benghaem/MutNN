@@ -36,7 +36,8 @@ def debug_print_graph(graph):
         node.pretty_print()
 
 
-config = Config(echo_store, resnet_data.get_test, 1, 1)
+config = Config(resnet_data.echo_top5,
+                resnet_data.get_test, 1, 1)
 graph = frontend.from_onnx(sys.argv[1], config)
 
 amap = {}

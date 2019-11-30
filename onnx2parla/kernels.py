@@ -98,8 +98,6 @@ def add_cpu(
 
     def fn():
         parray.copy(z, x + y)
-        t = z[0][0][0][0:10]
-        logging.log(logging.INFO, f"add: {t}")
 
     return fn
 
@@ -135,7 +133,6 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         cupy.copyto(z, x + y)
-        logging.log(logging.INFO, f"{z} = {x} + {y}")
 
     return fn
 
@@ -169,12 +166,7 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             y,
             (
                 chainer.functions.convolution_2d(
-                    x,
-                    w,
-                    b=b,
-                    stride=stride,
-                    pad=padding,
-                    dilate=dilations,
+                    x, w, b=b, stride=stride, pad=padding, dilate=dilations,
                 )
             ).array,
         )
@@ -206,13 +198,8 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
         cupy.copyto(
             y,
             (
-                gputils.convolution_2d(
-                    x,
-                    w,
-                    b,
-                    stride=stride,
-                    pad=padding,
-                    dilate=dilations,
+                chainer.functions.convolution_2d(
+                    x, w, b, stride=stride, pad=padding, dilate=dilations,
                 )
             ).array,
         )
@@ -237,9 +224,6 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         parray.copy(y, np.maximum(x, 0))
-        t = y[0][0][:][:]
-        logging.log(logging.INFO, f"relu: {t}")
-
 
     return fn
 
@@ -377,14 +361,13 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
         parray.copy(
             y,
-            chainer.functions.batch_normalization(
+            chainer.functions.fixed_batch_normalization(
                 x,
                 gamma,
                 beta,
-                eps=epsilon,
-                running_mean=mean,
-                running_var=var,
-                decay=momentum,
+                mean,
+                var,
+                eps=epsilon
             ).array,
         )
 
@@ -426,16 +409,58 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
         cupy.copyto(
             y,
-            chainer.functions.batch_normalization(
+            chainer.functions.fixed_batch_normalization(
                 x,
                 gamma,
                 beta,
-                eps=epsilon,
-                running_mean=mean,
-                running_var=var,
-                decay=momentum,
+                mean,
+                var,
+                eps=epsilon
             ).array,
         )
+
+    return fn
+
+
+def pad_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    x_io = node.inputs["data"]
+    y_io = node.outputs["output"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    logging.log(logging.WARN, "Pad is currently a NOP")
+
+    def fn():
+        parray.copy(y, x)
+
+    return fn
+
+
+def average_pool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """
+        Function:
+                Y = AVERAGE_POOL(X)
+            --> CONVE NCHW to NC11 (Average on HW dimensions)
+    """
+
+    x_io = node.inputs["X"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    kernel_size = node.get_attr("kernel_shape")
+    padding = node.get_attr("pads", [0])[0]
+    stride = node.get_attr("strides", [0])[0]
+
+    def fn():
+        out = chainer.functions.average_pooling_2d(
+            x, kernel_size, stride=stride, pad=padding
+        ).array
+        parray.copy(y, out)
 
     return fn
 
@@ -455,11 +480,7 @@ def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[],
     y = y_io.get_data(alloc_map)
 
     def fn():
-        out = np.empty([x.shape[0], x.shape[1], 1, 1])
-        for n in np.arange(0, x.shape[0]):
-            for c in np.arange(0, x.shape[1]):
-                out[n, c, 0, 0] = np.average(x[n, c, :, :])
-
+        out = chainer.functions.average_pooling_2d(x, (x.shape[2], x.shape[3])).array
         parray.copy(y, out)
 
     return fn
@@ -480,11 +501,7 @@ def globalAveragePool_gpu(node: Node, alloc_map, config: Config) -> Callable[[],
     y = y_io.get_data(alloc_map)
 
     def fn():
-        out = cupy.empty([x.shape[0], x.shape[1], 1, 1])
-        for n in cupy.arange(0, x.shape[0]):
-            for c in cupy.arange(0, x.shape[1]):
-                out[n, c, 0, 0] = cupy.average(x[n, c, :, :])
-
+        out = chainer.functions.average_pooling_2d(x, (x.shape[2], x.shape[3])).array
         cupy.copyto(y, out)
 
     return fn
