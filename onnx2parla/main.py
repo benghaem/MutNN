@@ -37,7 +37,7 @@ def debug_print_graph(graph):
 
 
 config = Config(resnet_data.echo_top5,
-                resnet_data.get_test, 32, 64)
+                resnet_data.get_test, 4, 4)
 graph = frontend.from_onnx(sys.argv[1], config)
 
 amap = {}

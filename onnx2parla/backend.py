@@ -121,7 +121,7 @@ def place_n_opt(
 ) -> None:
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
-        if node.operator == ops.CONV or node.operator == ops.RELU:
+        if node.operator == ops.MAXPOOL or node.operator == ops.ADD or node.operator == ops.CONV or node.operator == ops.BATCH_NORM or node.operator == ops.RELU or node.operator == ops.GLOBALAVERAGEPOOL  or node.operator == ops.FLATTEN or node.operator == ops.GEMM:
             node.device_type = "gpu"
             node.device_id = 0
         else:

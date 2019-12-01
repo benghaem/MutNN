@@ -7,7 +7,6 @@ import datetime
 import time
 import cupy
 
-
 import chainer
 from chainer import functions as gputils
 
@@ -161,14 +160,9 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
         fn: A new kernel Z = X + Y
     """
 
-    if node.get_operator() != "add":
-        raise ValueError(
-            "Node operator should be add, not {}".format(node.get_operator())
-        )
-
-    x_io = node.inputs["X"]
-    y_io = node.inputs["Y"]
-    z_io = node.outputs["Z"]
+    x_io = node.inputs["A"]
+    y_io = node.inputs["B"]
+    z_io = node.outputs["C"]
 
     x = x_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
@@ -273,7 +267,7 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y = y_io.get_data(alloc_map)
 
     def fn():
-        parray.copy(y, np.maximum(x, 0))
+        parray.copy(y, chainer.functions.relu(x).array)
 
     return fn
 
@@ -293,7 +287,7 @@ def relu_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y = y_io.get_data(alloc_map)
 
     def fn():
-        cupy.copyto(y, cupy.maximum(x, 0))
+        cupy.copyto(y, chainer.functions.relu(x).array)
 
     return fn
 
@@ -320,28 +314,21 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         time_st = datetime.datetime.now()
-        xt = x.transpose(0, 2, 3, 1)
-        n_ex, in_rows, in_cols, nc_in = xt.shape
-        (fr, fc), s, p = kernel_shape, stride, padding
-        x_pad, (pr1, pr2, pc1, pc2) = utils.pad2D(xt, p, kernel_shape, s)
-
-        out_rows = np.floor(1 + (in_rows + pr1 + pr2 - fr) / s).astype(int)
-        out_cols = np.floor(1 + (in_cols + pc1 + pc2 - fc) / s).astype(int)
-        Y = np.zeros((n_ex, out_rows, out_cols, nc_in))
-        for m in range(n_ex):
-            for i in range(out_rows):
-                for j in range(out_cols):
-                    for c in range(nc_in):
-                        # calculate window boundaries, incorporating stride
-                        i0, i1 = i * s, (i * s) + fr
-                        j0, j1 = j * s, (j * s) + fc
-
-                        xi = x_pad[m, i0:i1, j0:j1, c]
-                        Y[m, i, j, c] = np.amax(xi)
-        Y = Y.transpose(0, 3, 1, 2)
-        parray.copy(y, Y)
+        x_pad = np.pad(x, ((0,0),(0,0),(padding,padding),(padding,padding)), mode='constant', constant_values=0)
+        batches, c, h, w = x.shape
+        out_h = np.floor(((h - kernel_shape[0] + 2*padding)/stride) + 1).astype(int)
+        out_w = np.floor(((w - kernel_shape[1] + 2*padding)/stride) + 1).astype(int)
+        out = np.zeros((batches,c,out_h,out_w))
+        for i in range(batches):
+            for j in range(c):
+                for p in range(out_h):
+                    for q in range(out_w):
+                        p0, p1 = p * stride, (p * stride) + kernel_shape[0]
+                        q0, q1 = q * stride, (q * stride) + kernel_shape[1]
+                        out[i, j, p, q] = np.max(x_pad[i, j, p0:p1, q0:q1])
+                         
+        parray.copy(y, out)
         time_end = datetime.datetime.now()
-        #logging.log(logging.INFO, f"MAXPOOL sent -->  {y} MAXPOOL")
         logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
 
     return fn
@@ -366,14 +353,14 @@ def maxpool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     kernel_shape = node.get_attr("kernel_shape")
 
     def fn():
-        cupy.copyto(
-            y,
-            (
-                chainer.functions.max_pooling_2d(
-                    x, kernel_shape, stride=stride, pad=0, return_indices=False
-                )
-            ).array,
-        )
+        out = cupy.zeros_like(y)
+
+        chainer.backends.cuda.cudnn.pooling_forward(
+            x, out,
+            (kernel_shape[0], kernel_shape[1]), (stride, stride), (padding, padding),
+            chainer.backends.cuda.cuda.cudnn.CUDNN_POOLING_MAX)
+
+        cupy.copyto(y, out)
 
     return fn
 
@@ -410,7 +397,8 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     epsilon = node.get_attr("epsilon", 1e-05)
     momentum = node.get_attr("momentum", 0.9)
     spatial = node.get_attr("spatial")
-
+    if (epsilon < 1e-05):
+        epsilon = 1e-05
     def fn():
 
         #logging.log(logging.INFO, f"BATCHNORM got -->  {x} BATCHNORM")
@@ -459,7 +447,8 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     epsilon = node.get_attr("epsilon")
     momentum = node.get_attr("momentum")
     spatial = node.get_attr("spatial")
-
+    if (epsilon < 1e-05):
+        epsilon = 1e-05
     def fn():
 
         cupy.copyto(
@@ -633,7 +622,6 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             wt = np.transpose(w)
         else:
             wt = w
-
         parray.copy(y, (alpha * (xt @ wt)) + (beta * b))
 
     return fn
