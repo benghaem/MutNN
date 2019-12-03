@@ -7,7 +7,6 @@ import datetime
 import time
 import cupy
 
-
 import chainer
 from chainer import functions as gputils
 
@@ -276,7 +275,11 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y = y_io.get_data(alloc_map)
 
     def fn():
+<<<<<<< HEAD
         np.copyto(y, np.maximum(x, 0))
+=======
+        parray.copy(y, chainer.functions.relu(x).array)
+>>>>>>> ef595c5cab827b93db4d6c9d0e1a7f0e47e725f4
 
     return fn
 
@@ -296,7 +299,7 @@ def relu_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y = y_io.get_data(alloc_map)
 
     def fn():
-        cupy.copyto(y, cupy.maximum(x, 0))
+        cupy.copyto(y, chainer.functions.relu(x).array)
 
     return fn
 
@@ -323,6 +326,7 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         time_st = datetime.datetime.now()
+<<<<<<< HEAD
         xt = x.transpose(0, 2, 3, 1)
         n_ex, in_rows, in_cols, nc_in = xt.shape
         (fr, fc), s, p = kernel_shape, stride, padding
@@ -345,6 +349,23 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
         np.copyto(y, Y)
         time_end = datetime.datetime.now()
         logging.log(logging.INFO, f"MAXPOOL sent -->  {y[-1]} MAXPOOL")
+=======
+        x_pad = np.pad(x, ((0,0),(0,0),(padding,padding),(padding,padding)), mode='constant', constant_values=0)
+        batches, c, h, w = x.shape
+        out_h = np.floor(((h - kernel_shape[0] + 2*padding)/stride) + 1).astype(int)
+        out_w = np.floor(((w - kernel_shape[1] + 2*padding)/stride) + 1).astype(int)
+        out = np.zeros((batches,c,out_h,out_w))
+        for i in range(batches):
+            for j in range(c):
+                for p in range(out_h):
+                    for q in range(out_w):
+                        p0, p1 = p * stride, (p * stride) + kernel_shape[0]
+                        q0, q1 = q * stride, (q * stride) + kernel_shape[1]
+                        out[i, j, p, q] = np.max(x_pad[i, j, p0:p1, q0:q1])
+                         
+        parray.copy(y, out)
+        time_end = datetime.datetime.now()
+>>>>>>> ef595c5cab827b93db4d6c9d0e1a7f0e47e725f4
         logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
 
     return fn
@@ -369,14 +390,14 @@ def maxpool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     kernel_shape = node.get_attr("kernel_shape")
 
     def fn():
-        cupy.copyto(
-            y,
-            (
-                chainer.functions.max_pooling_2d(
-                    x, kernel_shape, stride=stride, pad=0, return_indices=False
-                )
-            ).array,
-        )
+        out = cupy.zeros_like(y)
+
+        chainer.backends.cuda.cudnn.pooling_forward(
+            x, out,
+            (kernel_shape[0], kernel_shape[1]), (stride, stride), (padding, padding),
+            chainer.backends.cuda.cuda.cudnn.CUDNN_POOLING_MAX)
+
+        cupy.copyto(y, out)
 
     return fn
 
@@ -413,7 +434,8 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     epsilon = node.get_attr("epsilon", 1e-05)
     momentum = node.get_attr("momentum", 0.9)
     spatial = node.get_attr("spatial")
-
+    if (epsilon < 1e-05):
+        epsilon = 1e-05
     def fn():
 
         logging.log(logging.INFO, f"BATCHNORM got -->  {x[-1]} BATCHNORM")
@@ -462,7 +484,8 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     epsilon = node.get_attr("epsilon")
     momentum = node.get_attr("momentum")
     spatial = node.get_attr("spatial")
-
+    if (epsilon < 1e-05):
+        epsilon = 1e-05
     def fn():
 
         cupy.copyto(
@@ -636,8 +659,12 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             wt = np.transpose(w)
         else:
             wt = w
+<<<<<<< HEAD
 
         np.copyto(y, (alpha * (xt @ wt)) + (beta * b))
+=======
+        parray.copy(y, (alpha * (xt @ wt)) + (beta * b))
+>>>>>>> ef595c5cab827b93db4d6c9d0e1a7f0e47e725f4
 
     return fn
 
