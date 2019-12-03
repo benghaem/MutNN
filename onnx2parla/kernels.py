@@ -29,7 +29,7 @@ def load_cpu(node: Node, alloc_map, config):
         batch_id = node.get_attr("batch_id")
         start_idx = batch_id * batch_size + node.instance_id * width
         end_idx = start_idx + width
-        parray.copy(z, config.user_load_fn(start_idx, end_idx))
+        np.copyto(z, config.user_load_fn(start_idx, end_idx))
         batch_id += 1
         node.set_attr("batch_id", batch_id)
 
@@ -45,6 +45,8 @@ def store_cpu(node, alloc_map, config):
 
     return fn
 
+def stream_callback_fn(stream, error, user):
+    logging.log(logging.INFO, f"{stream} -> {error} ({user})")
 
 def copy(node: Node, alloc_map, config: Config):
     x_io = node.inputs["X"]
@@ -57,19 +59,26 @@ def copy(node: Node, alloc_map, config: Config):
 
     def fn():
         time_st = datetime.datetime.now()
+        logging.log(logging.INFO, cupy.cuda.get_current_stream())
 
         if tz == numpy.ndarray:  # to cpu
-            parray.copy(z,chainer.backends.cuda.to_cpu(x, stream=None))
+            np.copyto(z,cupy.asnumpy(x))
+            #assert cupy.testing.assert_array_equal(z,x)
 
         if tz == cupy.core.core.ndarray:  # to gpu
-            with cupy.cuda.Device(node.device_id):
-                tmp = cupy.asarray(x, dtype=cupy.float32)
-                cupy.copyto(z,tmp)
-                #cupy.copyto(z,chainer.backends.cuda.to_gpu(x,
-                #    device=node.device_id, stream=None))
+            #with cupy.cuda.Device(node.device_id):
+            cupy.copyto(z,cupy.asarray(x))
+            #assert cupy.testing.assert_array_equal(z,x)
 
+            #assert z.shape == x.shape
+            #cupy.cuda.get_current_stream().synchronize()
+            #tmp = cupy.asarray(x)
+            #cupy.cuda.get_current_stream().synchronize()
 
-        # to gpu:
+            #neq = cupy.count_nonzero(cupy.logical_not(z==tmp))
+            #print(neq)
+            #assert cupy.testing.assert_array_equal(z,tmp)
+                # to gpu:
 
         #og_shape = x.shape
 
@@ -84,7 +93,7 @@ def copy(node: Node, alloc_map, config: Config):
 
         #        z_flat = z_flat.reshape(og_shape)
 
-        #        parray.copy(z,z_flat)
+        #        np.copyto(z,z_flat)
 
 
         #if tz == cupy.core.core.ndarray:
@@ -103,7 +112,7 @@ def copy(node: Node, alloc_map, config: Config):
 
         time_end = datetime.datetime.now()
         #logging.log(logging.INFO, f"done copy {z}, {tz}")
-        logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id} {time_st} -> {time_end}")
+        #logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id} {time_st} -> {time_end}")
 
     return fn
 
@@ -140,7 +149,7 @@ def add_cpu(
     z = z_io.get_data(alloc_map)
 
     def fn():
-        parray.copy(z, x + y)
+        np.copyto(z, x + y)
 
     return fn
 
@@ -161,14 +170,9 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
         fn: A new kernel Z = X + Y
     """
 
-    if node.get_operator() != "add":
-        raise ValueError(
-            "Node operator should be add, not {}".format(node.get_operator())
-        )
-
-    x_io = node.inputs["X"]
-    y_io = node.inputs["Y"]
-    z_io = node.outputs["Z"]
+    x_io = node.inputs["A"]
+    y_io = node.inputs["B"]
+    z_io = node.outputs["C"]
 
     x = x_io.get_data(alloc_map)
     y = y_io.get_data(alloc_map)
@@ -205,7 +209,7 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     ]  # Assuming same padding in all directions
 
     def fn():
-        parray.copy(
+        np.copyto(
             y,
             (
                 chainer.functions.convolution_2d(
@@ -239,21 +243,20 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         time_st = datetime.datetime.now()
-        #logging.log(logging.INFO, f"CONVOP got -->  {x} CONVOP")
-        with cupy.cuda.Device(node.device_id):
-            cupy.copyto(
-                y,
-                (
-                    chainer.functions.convolution_2d(
-                        x, w, b, stride=stride, pad=padding, dilate=dilations,
-                    )
-                ).array,
-            )
+        logging.log(logging.INFO, f"CONVOP got -->  {x[-1]} CONVOP")
+        #with cupy.cuda.Device(node.device_id):
+        cupy.copyto(
+            y,
+            (
+                chainer.functions.convolution_2d(
+                    x, w, b, stride=stride, pad=padding, dilate=dilations,
+                )
+            ).array,
+        )
 
-            cupy.cuda.Device(node.device_id).synchronize()
         time_end = datetime.datetime.now()
         logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
-        #logging.log(logging.INFO, f"CONVOP -->  {y} CONVOP")
+        logging.log(logging.INFO, f"CONV sent -->  {y[-1]} CONV")
 
     return fn
 
@@ -273,7 +276,7 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y = y_io.get_data(alloc_map)
 
     def fn():
-        parray.copy(y, np.maximum(x, 0))
+        np.copyto(y, np.maximum(x, 0))
 
     return fn
 
@@ -339,9 +342,9 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
                         xi = x_pad[m, i0:i1, j0:j1, c]
                         Y[m, i, j, c] = np.amax(xi)
         Y = Y.transpose(0, 3, 1, 2)
-        parray.copy(y, Y)
+        np.copyto(y, Y)
         time_end = datetime.datetime.now()
-        #logging.log(logging.INFO, f"MAXPOOL sent -->  {y} MAXPOOL")
+        logging.log(logging.INFO, f"MAXPOOL sent -->  {y[-1]} MAXPOOL")
         logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
 
     return fn
@@ -413,8 +416,8 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
 
-        #logging.log(logging.INFO, f"BATCHNORM got -->  {x} BATCHNORM")
-        parray.copy(
+        logging.log(logging.INFO, f"BATCHNORM got -->  {x[-1]} BATCHNORM")
+        np.copyto(
             y,
             chainer.functions.fixed_batch_normalization(
                 x,
@@ -488,7 +491,7 @@ def pad_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     logging.log(logging.WARN, "Pad is currently a NOP")
 
     def fn():
-        parray.copy(y, x)
+        np.copyto(y, x)
 
     return fn
 
@@ -515,7 +518,7 @@ def average_pool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None
         out = chainer.functions.average_pooling_2d(
             x, kernel_size, stride=stride, pad=padding
         ).array
-        parray.copy(y, out)
+        np.copyto(y, out)
 
     return fn
 
@@ -536,7 +539,7 @@ def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[],
 
     def fn():
         out = chainer.functions.average_pooling_2d(x, (x.shape[2], x.shape[3])).array
-        parray.copy(y, out)
+        np.copyto(y, out)
 
     return fn
 
@@ -577,7 +580,7 @@ def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y = y_io.get_data(alloc_map)
 
     def fn():
-        parray.copy(y, x.reshape(x.shape[0], -1))
+        np.copyto(y, x.reshape(x.shape[0], -1))
 
     return fn
 
@@ -634,7 +637,7 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
         else:
             wt = w
 
-        parray.copy(y, (alpha * (xt @ wt)) + (beta * b))
+        np.copyto(y, (alpha * (xt @ wt)) + (beta * b))
 
     return fn
 

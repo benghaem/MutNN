@@ -10,7 +10,8 @@ from node import node_stringizer
 
 import resnet_data
 
-from parla import cpu as pcpu
+#from parla import cpu as pcpu
+from parla import cpucores as pcpu_cores
 from parla import tasks as ptasks
 
 logging.basicConfig(filename="full.log", level=logging.DEBUG)
@@ -37,7 +38,7 @@ def debug_print_graph(graph):
 
 
 config = Config(resnet_data.echo_top5,
-                resnet_data.get_test, 32, 64)
+                resnet_data.get_test, 128, 4096)
 graph = frontend.from_onnx(sys.argv[1], config)
 
 amap = {}
@@ -58,4 +59,4 @@ for i, opass in enumerate(passes):
     nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
 
 # run everything!
-ptasks.spawn(placement=pcpu.cpu(0))(backend.build_execute(graph, config))
+ptasks.spawn(placement=pcpu_cores.cpu(0))(backend.build_execute(graph, config))

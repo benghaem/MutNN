@@ -5,7 +5,8 @@ import math
 import logging
 from typing import Dict, Callable
 
-from parla import cpu as pcpu
+#from parla import cpu as pcpu
+from parla import cpucores as pcpu_cores
 from parla import cuda as pcuda
 from parla import tasks as ptasks
 
@@ -119,9 +120,13 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 def place_n_opt(
     graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
 ) -> None:
+
+    gpu_supported = [ops.CONV, ops.MAXPOOL, ops.ADD, ops.RELU, ops.BATCH_NORM,
+            ops.FLATTEN, ops.GLOBALAVERAGEPOOL, ops.GEMM]
+
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
-        if node.operator == ops.CONV or node.operator == ops.RELU:
+        if node.operator in gpu_supported:
             node.device_type = "gpu"
             node.device_id = 0
         else:
@@ -148,21 +153,19 @@ def allocate(
             # check successor
             if scc_node.device_type == "gpu":
                 with cupy.cuda.Device(scc_node.device_id):
-                    alloc_map[io_z.name] = cupy.ndarray(io_z.shape,
-                            dtype=cupy.float32)
+                    alloc_map[io_z.name] = cupy.ndarray(io_z.shape, dtype=cupy.float32)
             else:
-                alloc_map[io_z.name] = np.ndarray(io_z.shape,
-                        dtype=np.float32)
+                alloc_map[io_z.name] = np.ndarray(io_z.shape, dtype=np.float32)
         else:
             for io in node.outputs.values():
                 if io.kind == "pointer":
                     if node.device_type == "gpu":
                         with cupy.cuda.Device(node.device_id):
-                            alloc_map[io.name] = cupy.ndarray(io.shape,
-                                    dtype=cupy.float32)
+                            alloc_map[io.name] = cupy.ndarray(
+                                io.shape, dtype=cupy.float32
+                            )
                     else:
-                        alloc_map[io.name] = np.ndarray(io.shape,
-                                dtype=np.float32)
+                        alloc_map[io.name] = np.ndarray(io.shape, dtype=np.float32)
 
         for io in node.inputs.values():
             if io.kind == "static" and node.device_type == "gpu":
@@ -258,6 +261,8 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
     async def fn():
         async with ptasks.finish():
 
+            task_obj_map = {}
+
             batches = math.ceil(config.dataset_len / config.batch_size)
 
             for batch_id in range(batches):
@@ -267,8 +272,6 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
 
                 while len(q) > 0:
                     gnode = q.popleft()
-
-                    logging.log(logging.INFO, "execute node: {}".format(gnode))
 
                     node = graph.nodes[gnode]["node"]
 
@@ -306,18 +309,25 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                             q.append(gchild)
 
                     loc = None
-                    #if node.device_type == "cpu":
-                    loc = pcpu.cpu(node.device_id)
-                    #else:
-                    #loc = pcuda.gpu(node.device_id)
+                    if node.device_type == "cpu":
+                        loc = pcpu_cores.cpu(1)
+                    else:
+                        loc = pcpu_cores.cpu(2)
 
                     node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
                         node.fn
                     )
+
                     node.last_launch_batch_id += 1
 
-                    logging.log(logging.INFO, "---{}---".format(node.operator))
+                    logging.log(
+                        logging.INFO, "---<{}>{}---".format(node.node_id, node.operator)
+                    )
                     logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
-                    logging.log(logging.INFO, "deps {}".format(deps))
+                    task_obj_map[node.last_task_obj] = f"<{node.node_id}>{node.operator} batch={batch_id}"
+                    dep_string = ""
+                    for dep in deps:
+                        dep_string = dep_string + " " + task_obj_map[dep]
+                    logging.log(logging.INFO, "deps {}".format(dep_string))
 
     return fn
