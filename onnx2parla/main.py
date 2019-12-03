@@ -45,8 +45,9 @@ amap = {}
 debug_print_graph(graph)
 
 passes = [
-    backend.place_n_opt,
+    backend.place,
     backend.copy_insertion,
+    backend.opt_graph_split,
     backend.allocate,
     backend.build_graph,
 ]
@@ -58,5 +59,6 @@ for i, opass in enumerate(passes):
     debug_print_graph(graph)
     nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
 
+sys.exit(1)
 # run everything!
 ptasks.spawn(placement=pcpu_cores.cpu(0))(backend.build_execute(graph, config))

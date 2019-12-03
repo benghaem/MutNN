@@ -70,7 +70,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
         else:
             new_io.kind = "pointer"
             new_io.data = None
-            new_io.shape = onnx_type_to_shape(inp.type, config.batch_size)
+            new_io.shape = onnx_type_to_shape(inp.type, config.user_width)
 
         io_map[inp.name] = new_io
         logging.log(logging.DEBUG, f"Built IO: {new_io}")
@@ -81,7 +81,8 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
             new_io = InOut(out, None, None, None)
             new_io.kind = "pointer"
             new_io.data = None
-            new_io.shape = onnx_type_to_shape(value_info[out].type, config.batch_size)
+            new_io.shape = onnx_type_to_shape(value_info[out].type,
+                    config.user_width)
             io_map[out] = new_io
             logging.log(logging.DEBUG, f"Built IO: {new_io}")
 
@@ -104,7 +105,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     for dyninp_vi in polished_model.graph.input:
         if dyninp_vi.name not in initializers:
             built_node = build_load_node(
-                dyninp_vi.name, io_map, usage_map, node_id, config.batch_size
+                dyninp_vi.name, io_map, usage_map, node_id
             )
             graph.add_node(node_id)
             graph.nodes[node_id]["node"] = built_node
@@ -210,7 +211,7 @@ def build_store_node(target, io_map, usage_map, node_id):
     return new_node
 
 
-def build_load_node(target, io_map, usage_map, node_id, batch_size):
+def build_load_node(target, io_map, usage_map, node_id):
 
     """
     Build a new load node and log usage in the map
@@ -218,7 +219,7 @@ def build_load_node(target, io_map, usage_map, node_id, batch_size):
 
     inputs = {}
     outputs = {"Z": io_map[target]}
-    attrs = {"width": batch_size, "batch_id": 0}
+    attrs = {"batch_id": 0}
     new_node = Node(node_id, ops.O2P_LOAD, inputs, outputs, attrs, 0)
     usage_map[target]["def"].append(node_id)
 

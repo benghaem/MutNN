@@ -14,16 +14,22 @@ from onnx2parla.config import Config
 
 from typing import Callable, Dict
 
+# user_width: per gpu batch size
+# batch size: the total width of the batch
+
+# batch size = sum (width_device)
 
 def load_cpu(node: Node, alloc_map, config):
     z_io = node.outputs["Z"]
     z = z_io.get_data(alloc_map)
 
-    width = node.get_attr("width")
-    batch_size = config.batch_size
+    width = z_io.shape[0]
+    batch_size = config.computed_batch_size
 
     def fn():
         batch_id = node.get_attr("batch_id")
+        # indexing is setup for the static case
+        # this indexing works for batch size > gpu_supported 
         start_idx = batch_id * batch_size + node.instance_id * width
         end_idx = start_idx + width
         np.copyto(z, config.user_load_fn(start_idx, end_idx))
@@ -656,15 +662,16 @@ def gemm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     transW = node.get_attr("transB", 0)
 
     def fn():
-        if transX == 1:
-            xt = cupy.transpose(x)
-        else:
-            xt = x
-        if transW == 1:
-            wt = cupy.transpose(w)
-        else:
-            wt = w
+        with cupy.cuda.Device(node.device_id):
+            if transX == 1:
+                xt = cupy.transpose(x)
+            else:
+                xt = x
+            if transW == 1:
+                wt = cupy.transpose(w)
+            else:
+                wt = w
 
-        cupy.copyto(y, (alpha * (xt @ wt)) + (beta * b))
+            cupy.copyto(y, (alpha * (xt @ wt)) + (beta * b))
 
     return fn
