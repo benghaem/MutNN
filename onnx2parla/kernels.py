@@ -1,6 +1,5 @@
 import numpy as np
 import numpy
-import parla.array as parray
 import logging
 import datetime
 
@@ -10,7 +9,6 @@ import cupy
 import chainer
 from chainer import functions as gputils
 
-from onnx2parla.third_party import utils as utils
 from onnx2parla.node import Node
 from onnx2parla.config import Config
 
@@ -275,11 +273,7 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y = y_io.get_data(alloc_map)
 
     def fn():
-<<<<<<< HEAD
-        np.copyto(y, np.maximum(x, 0))
-=======
-        parray.copy(y, chainer.functions.relu(x).array)
->>>>>>> ef595c5cab827b93db4d6c9d0e1a7f0e47e725f4
+        np.copyto(y, chainer.functions.relu(x).array)
 
     return fn
 
@@ -326,30 +320,6 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         time_st = datetime.datetime.now()
-<<<<<<< HEAD
-        xt = x.transpose(0, 2, 3, 1)
-        n_ex, in_rows, in_cols, nc_in = xt.shape
-        (fr, fc), s, p = kernel_shape, stride, padding
-        x_pad, (pr1, pr2, pc1, pc2) = utils.pad2D(xt, p, kernel_shape, s)
-
-        out_rows = np.floor(1 + (in_rows + pr1 + pr2 - fr) / s).astype(int)
-        out_cols = np.floor(1 + (in_cols + pc1 + pc2 - fc) / s).astype(int)
-        Y = np.zeros((n_ex, out_rows, out_cols, nc_in))
-        for m in range(n_ex):
-            for i in range(out_rows):
-                for j in range(out_cols):
-                    for c in range(nc_in):
-                        # calculate window boundaries, incorporating stride
-                        i0, i1 = i * s, (i * s) + fr
-                        j0, j1 = j * s, (j * s) + fc
-
-                        xi = x_pad[m, i0:i1, j0:j1, c]
-                        Y[m, i, j, c] = np.amax(xi)
-        Y = Y.transpose(0, 3, 1, 2)
-        np.copyto(y, Y)
-        time_end = datetime.datetime.now()
-        logging.log(logging.INFO, f"MAXPOOL sent -->  {y[-1]} MAXPOOL")
-=======
         x_pad = np.pad(x, ((0,0),(0,0),(padding,padding),(padding,padding)), mode='constant', constant_values=0)
         batches, c, h, w = x.shape
         out_h = np.floor(((h - kernel_shape[0] + 2*padding)/stride) + 1).astype(int)
@@ -362,10 +332,8 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
                         p0, p1 = p * stride, (p * stride) + kernel_shape[0]
                         q0, q1 = q * stride, (q * stride) + kernel_shape[1]
                         out[i, j, p, q] = np.max(x_pad[i, j, p0:p1, q0:q1])
-                         
-        parray.copy(y, out)
+        np.copyto(y, out)
         time_end = datetime.datetime.now()
->>>>>>> ef595c5cab827b93db4d6c9d0e1a7f0e47e725f4
         logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
 
     return fn
@@ -659,12 +627,8 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             wt = np.transpose(w)
         else:
             wt = w
-<<<<<<< HEAD
 
         np.copyto(y, (alpha * (xt @ wt)) + (beta * b))
-=======
-        parray.copy(y, (alpha * (xt @ wt)) + (beta * b))
->>>>>>> ef595c5cab827b93db4d6c9d0e1a7f0e47e725f4
 
     return fn
 
