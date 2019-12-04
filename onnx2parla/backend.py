@@ -203,7 +203,7 @@ def opt_graph_split(
     graph.add_node(PNO_GRAPH_HEAD_ID)
     graph.add_edge(PNO_GRAPH_HEAD_ID, 0)
 
-    graph.nodes[PNO_GRAPH_HEAD_ID]["node"] = Node(-1, "PNO_GRAPH_HEAD", {}, {}, {}, 0)
+    graph.nodes[PNO_GRAPH_HEAD_ID]["node"] = Node(-1, ops.O2P_GRAPH_HEAD, {}, {}, {}, 0)
 
     # need to rename and assign to the correct device
     cuda_devices = get_valid_cuda_devices()
@@ -269,11 +269,25 @@ def opt_graph_split(
 
 
 def opt_shape(**args):
+
+    # support hetrogenous gpus?
+
     # we need a function to fix the IO widths. This is an issue if the
     # user_width is different than the optimal / maximum width for our GPUs
 
     # ensure that config.computed_batch_size = sum(all widths)
     # computed batch size is invalid until this pass completes
+
+    #two cases
+
+    # maximum = 64
+    # user_width = 80
+    # user_width > maximum
+    #   WARN user?
+    # user_width <= maximum
+    #   do nothing
+
+
     return
 
 def allocate(
@@ -395,6 +409,9 @@ def build_kernel(
         else:
             return kernels.gemm_gpu(node, alloc_map, config)
 
+    if oper == ops.O2P_GRAPH_HEAD:
+        return None
+
     raise ValueError(f"Operator {oper} not supported")
 
 
@@ -404,73 +421,83 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
 
             task_obj_map = {}
 
-            batches = math.ceil(config.dataset_len / config.batch_size)
+            batches = math.ceil(config.dataset_len / config.computed_batch_size)
+
+            roots = list(graph.successors(PNO_GRAPH_HEAD_ID))
 
             for batch_id in range(batches):
+                print(batch_id)
 
-                # initialize with root of tree
-                q = deque([0])
+                for root in roots:
 
-                while len(q) > 0:
-                    gnode = q.popleft()
+                    # initialize with root of tree
+                    q = deque([root])
 
-                    node = graph.nodes[gnode]["node"]
+                    while len(q) > 0:
+                        gnode = q.popleft()
 
-                    deps = []
-                    parents_have_launched = True
+                        node = graph.nodes[gnode]["node"]
 
-                    # get parents and get children
-                    for gparent in graph.predecessors(gnode):
-                        parent = graph.nodes[gparent]["node"]
+                        deps = []
+                        parents_have_launched = True
 
-                        if parent.last_launch_batch_id != batch_id:
-                            # need to wait until all deps are launched
-                            # break out early
-                            parents_have_launched = False
-                            break
+                        # get parents and get children
+                        for gparent in graph.predecessors(gnode):
 
-                        lto = parent.last_task_obj
-                        deps.append(lto)
-                        assert lto
+                            # the graph root is not a real dependency
+                            if gparent == PNO_GRAPH_HEAD_ID:
+                                continue
 
-                    if not parents_have_launched:
-                        q.append(gnode)
-                        continue
+                            parent = graph.nodes[gparent]["node"]
 
-                    for gchild in graph.successors(gnode):
-                        # depend on children from previous batch, ignore none
-                        # for first batch
-                        if batch_id > 0:
-                            lto = graph.nodes[gchild]["node"].last_task_obj
+                            if parent.last_launch_batch_id != batch_id:
+                                # need to wait until all deps are launched
+                                # break out early
+                                parents_have_launched = False
+                                break
+
+                            lto = parent.last_task_obj
                             deps.append(lto)
                             assert lto
 
-                        # continue to progress down the tree
-                        if gchild not in q:
-                            q.append(gchild)
+                        if not parents_have_launched:
+                            q.append(gnode)
+                            continue
 
-                    loc = None
-                    if node.device_type == "cpu":
-                        loc = pcpu_cores.cpu(1)
-                    else:
-                        loc = pcpu_cores.cpu(2)
+                        for gchild in graph.successors(gnode):
+                            # depend on children from previous batch, ignore none
+                            # for first batch
+                            if batch_id > 0:
+                                lto = graph.nodes[gchild]["node"].last_task_obj
+                                deps.append(lto)
+                                assert lto
 
-                    node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
-                        node.fn
-                    )
+                            # continue to progress down the tree
+                            if gchild not in q:
+                                q.append(gchild)
 
-                    node.last_launch_batch_id += 1
+                        loc = None
+                        if node.device_type == "cpu":
+                            loc = pcpu_cores.cpu(1)
+                        else:
+                            loc = pcpu_cores.cpu(node.device_id+2)
 
-                    logging.log(
-                        logging.INFO, "---<{}>{}---".format(node.node_id, node.operator)
-                    )
-                    logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
-                    task_obj_map[
-                        node.last_task_obj
-                    ] = f"<{node.node_id}>{node.operator} batch={batch_id}"
-                    dep_string = ""
-                    for dep in deps:
-                        dep_string = dep_string + " " + task_obj_map[dep]
-                    logging.log(logging.INFO, "deps {}".format(dep_string))
+                        node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
+                            node.fn
+                        )
+
+                        node.last_launch_batch_id += 1
+
+                        logging.log(
+                            logging.INFO, "---<{}>{}---".format(node.node_id, node.operator)
+                        )
+                        logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
+                        task_obj_map[
+                            node.last_task_obj
+                        ] = f"<{node.node_id}>{node.operator} batch={batch_id}"
+                        dep_string = ""
+                        for dep in deps:
+                            dep_string = dep_string + " " + task_obj_map[dep]
+                        logging.log(logging.INFO, "deps {}".format(dep_string))
 
     return fn

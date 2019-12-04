@@ -7,6 +7,7 @@ import backend
 import onnx_frontend as frontend
 from config import Config
 from node import node_stringizer
+import datetime
 
 import resnet_data
 
@@ -59,6 +60,9 @@ for i, opass in enumerate(passes):
     debug_print_graph(graph)
     nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
 
-sys.exit(1)
 # run everything!
+start_time = datetime.datetime.now()
 ptasks.spawn(placement=pcpu_cores.cpu(0))(backend.build_execute(graph, config))
+end_time = datetime.datetime.now()
+
+print("Execution time: {}".format(end_time-start_time))
