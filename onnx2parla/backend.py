@@ -208,7 +208,8 @@ def opt_graph_split(
     # need to rename and assign to the correct device
     cuda_devices = get_valid_cuda_devices()
     num_cuda = len(cuda_devices)
-
+    
+    config.computed_batch_size = num_cuda * config.user_width;
     # there is now +1 node in the graph because of the -1 head
     new_gnode = graph.number_of_nodes() - 1
 
@@ -216,7 +217,8 @@ def opt_graph_split(
 
         # compute the correct split
 
-        gpu_name_maps = [{}] * num_cuda
+        #gpu_name_maps = [{}] * num_cuda
+        gpu_name_maps = [ {} for i in range(num_cuda) ]
 
         #source_gnode -> local_gnode
 
@@ -231,7 +233,7 @@ def opt_graph_split(
         for source_gnode in fixed_list[1:]:
             source_node = graph.nodes[source_gnode]["node"]
 
-            gparents = graph.predecessors(source_gnode)
+            gparents = list(graph.predecessors(source_gnode))
 
             for gpu_idx, device_id in enumerate(cuda_devices):
 
@@ -244,6 +246,7 @@ def opt_graph_split(
                 if source_node.device_type == "gpu":
                     device_node.device_type = "gpu"
                     device_node.device_id = device_id
+                    print("Device" + str(device_id))
                 else:
                     device_node.device_type = "cpu"
                     device_node.device_id = 0
@@ -422,8 +425,9 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             task_obj_map = {}
 
             batches = math.ceil(config.dataset_len / config.computed_batch_size)
-
             roots = list(graph.successors(PNO_GRAPH_HEAD_ID))
+
+            print("all roots {}".format(roots)) 
 
             for batch_id in range(batches):
                 print(batch_id)
@@ -481,6 +485,9 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                             loc = pcpu_cores.cpu(1)
                         else:
                             loc = pcpu_cores.cpu(node.device_id+2)
+                            #loc = pcpu_cores.cpu(2)
+
+                        loc = pcpu_cores.cpu(node.device_id+1)
 
                         node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
                             node.fn

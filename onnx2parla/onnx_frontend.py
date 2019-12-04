@@ -204,7 +204,7 @@ def build_store_node(target, io_map, usage_map, node_id):
 
     inputs = {"X": io_map[target]}
     outputs = {}
-    attrs = {}
+    attrs = {"store_id": 0}
     new_node = Node(node_id, ops.O2P_STORE, inputs, outputs, attrs, 0)
     usage_map[target]["use"].append(node_id)
 
