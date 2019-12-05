@@ -246,7 +246,6 @@ def opt_graph_split(
                 if source_node.device_type == "gpu":
                     device_node.device_type = "gpu"
                     device_node.device_id = device_id
-                    print("Device" + str(device_id))
                 else:
                     device_node.device_type = "cpu"
                     device_node.device_id = 0
@@ -419,6 +418,9 @@ def build_kernel(
 
 
 def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
+
+    num_gpus = len(get_valid_cuda_devices())
+
     async def fn():
         async with ptasks.finish():
 
@@ -430,81 +432,86 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             print("all roots {}".format(roots)) 
 
             for batch_id in range(batches):
-                print(batch_id)
 
-                for root in roots:
+                # initialize with roots of tree
+                q = deque(roots)
 
-                    # initialize with root of tree
-                    q = deque([root])
+                while len(q) > 0:
+                    gnode = q.popleft()
 
-                    while len(q) > 0:
-                        gnode = q.popleft()
+                    node = graph.nodes[gnode]["node"]
 
-                        node = graph.nodes[gnode]["node"]
+                    deps = []
+                    parents_have_launched = True
 
-                        deps = []
-                        parents_have_launched = True
+                    # get parents and get children
+                    for gparent in graph.predecessors(gnode):
 
-                        # get parents and get children
-                        for gparent in graph.predecessors(gnode):
+                        # the graph root is not a real dependency
+                        if gparent == PNO_GRAPH_HEAD_ID:
+                            continue
 
-                            # the graph root is not a real dependency
-                            if gparent == PNO_GRAPH_HEAD_ID:
-                                continue
+                        parent = graph.nodes[gparent]["node"]
 
-                            parent = graph.nodes[gparent]["node"]
+                        if parent.last_launch_batch_id != batch_id:
+                            # need to wait until all deps are launched
+                            # break out early
+                            parents_have_launched = False
+                            break
 
-                            if parent.last_launch_batch_id != batch_id:
-                                # need to wait until all deps are launched
-                                # break out early
-                                parents_have_launched = False
-                                break
+                        lto = parent.last_task_obj
+                        deps.append(lto)
+                        assert lto
 
-                            lto = parent.last_task_obj
+                    if not parents_have_launched:
+                        q.append(gnode)
+                        continue
+
+                    for gchild in graph.successors(gnode):
+                        # depend on children from previous batch, ignore none
+                        # for first batch
+                        if batch_id > 0:
+                            lto = graph.nodes[gchild]["node"].last_task_obj
                             deps.append(lto)
                             assert lto
 
-                        if not parents_have_launched:
-                            q.append(gnode)
-                            continue
+                        # continue to progress down the tree
+                        if gchild not in q:
+                            q.append(gchild)
 
-                        for gchild in graph.successors(gnode):
-                            # depend on children from previous batch, ignore none
-                            # for first batch
-                            if batch_id > 0:
-                                lto = graph.nodes[gchild]["node"].last_task_obj
-                                deps.append(lto)
-                                assert lto
+                    #loc = None
+                    #if node.device_type == "cpu":
+                    #    loc = pcpu_cores.cpu(1)
+                    #else:
+                    #    loc = pcpu_cores.cpu(node.device_id+2)
+                        #loc = pcpu_cores.cpu(2)
 
-                            # continue to progress down the tree
-                            if gchild not in q:
-                                q.append(gchild)
+                    queue = (batch_id % num_gpus) + 1
+                    #if (batch_id % 2 == 0):
+                    #    loc = pcpu_cores.cpu(1)
+                    #else:
+                    #    loc = pcpu_cores.cpu(2)
+                    loc = pcpu_cores.cpu(queue)
 
-                        loc = None
-                        if node.device_type == "cpu":
-                            loc = pcpu_cores.cpu(1)
-                        else:
-                            loc = pcpu_cores.cpu(node.device_id+2)
-                            #loc = pcpu_cores.cpu(2)
+                    node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
+                        node.fn
+                    )
 
-                        loc = pcpu_cores.cpu(node.device_id+1)
+                    node.last_launch_batch_id += 1
 
-                        node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
-                            node.fn
-                        )
+                    logging.log(
+                        logging.INFO, "---<{}>{}---".format(node.node_id, node.operator)
+                    )
+                    logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
+                    task_obj_map[
+                        node.last_task_obj
+                    ] = f"<{node.node_id}>{node.operator} batch={batch_id}"
+                    dep_string = ""
+                    for dep in deps:
+                        dep_string = dep_string + " " + task_obj_map[dep]
+                    logging.log(logging.INFO, "deps {}".format(dep_string))
 
-                        node.last_launch_batch_id += 1
-
-                        logging.log(
-                            logging.INFO, "---<{}>{}---".format(node.node_id, node.operator)
-                        )
-                        logging.log(logging.INFO, "launched {}".format(node.last_task_obj))
-                        task_obj_map[
-                            node.last_task_obj
-                        ] = f"<{node.node_id}>{node.operator} batch={batch_id}"
-                        dep_string = ""
-                        for dep in deps:
-                            dep_string = dep_string + " " + task_obj_map[dep]
-                        logging.log(logging.INFO, "deps {}".format(dep_string))
+                #if batch_id % 2 == 0:
+                #    await node.last_task_obj
 
     return fn
