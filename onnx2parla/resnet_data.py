@@ -21,7 +21,7 @@ def get_test(s, e):
     dp = preprocess(d)
     dp = np.tile(dp, (batch_size,1,1,1))
     #d = np.zeros((1,3,224,224))
-    print(np.shape(dp))
+    #print(np.shape(dp))
     return dp
 
 def get_random(s, e):
@@ -39,6 +39,7 @@ def store(x):
     print(x)
 
 def echo_top5(x):
-    for batch_el in x:
-        t5 = sorted(zip(batch_el,range(len(batch_el))),reverse=True)[0:5]
-        print(t5)
+    #for batch_el in x:
+    #    t5 = sorted(zip(batch_el,range(len(batch_el))),reverse=True)[0:5]
+    #    print(t5)
+    print("batch done!")

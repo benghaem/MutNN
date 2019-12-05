@@ -64,7 +64,7 @@ def copy(node: Node, alloc_map, config: Config):
     tz = type(z)
 
     def fn():
-        time_st = datetime.datetime.now()
+        #time_st = datetime.datetime.now()
 
         if tz == numpy.ndarray:  # to cpu
             np.copyto(z,cupy.asnumpy(x))
@@ -115,7 +115,7 @@ def copy(node: Node, alloc_map, config: Config):
 
         #        cupy.copyto(z,z_flat)
 
-        time_end = datetime.datetime.now()
+        #time_end = datetime.datetime.now()
         #logging.log(logging.INFO, f"done copy {z}, {tz}")
         #logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id} {time_st} -> {time_end}")
 
@@ -248,7 +248,7 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     dilations = node.get_attr("dilations")[0]  # Assuming same padding in all directions
 
     def fn():
-        time_st = datetime.datetime.now()
+        #time_st = datetime.datetime.now()
         #logging.log(logging.INFO, f"CONVOP got -->  {x[-1]} CONVOP")
 
         with cupy.cuda.Device(node.device_id):
@@ -261,7 +261,7 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
                 ).array,
             )
 
-        time_end = datetime.datetime.now()
+        #time_end = datetime.datetime.now()
         #logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
         #logging.log(logging.INFO, f"CONV sent -->  {y[-1]} CONV")
 
@@ -330,7 +330,7 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     kernel_shape = node.get_attr("kernel_shape")
 
     def fn():
-        time_st = datetime.datetime.now()
+        #time_st = datetime.datetime.now()
         x_pad = np.pad(x, ((0,0),(0,0),(padding,padding),(padding,padding)), mode='constant', constant_values=0)
         batches, c, h, w = x.shape
         out_h = np.floor(((h - kernel_shape[0] + 2*padding)/stride) + 1).astype(int)
@@ -344,7 +344,7 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
                         q0, q1 = q * stride, (q * stride) + kernel_shape[1]
                         out[i, j, p, q] = np.max(x_pad[i, j, p0:p1, q0:q1])
         np.copyto(y, out)
-        time_end = datetime.datetime.now()
+        #time_end = datetime.datetime.now()
         #logging.log(logging.INFO, f"TIMER: <{node.operator},{node.node_id}> {time_st} -> {time_end}")
 
     return fn
