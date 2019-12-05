@@ -145,6 +145,7 @@ def place(
         ops.FLATTEN,
         ops.GLOBALAVERAGEPOOL,
         ops.GEMM,
+        ops.DROPOUT,
     ]
 
     cuda_devices = get_valid_cuda_devices()
@@ -411,6 +412,12 @@ def build_kernel(
             return kernels.gemm_cpu(node, alloc_map, config)
         else:
             return kernels.gemm_gpu(node, alloc_map, config)
+
+    if oper == ops.DROPOUT:
+        if node.device_type == "cpu":
+            return kernels.dropout_cpu(node, alloc_map, config)
+        else:
+            return kernels.dropout_gpu(node, alloc_map, config)
 
     if oper == ops.O2P_GRAPH_HEAD:
         return None

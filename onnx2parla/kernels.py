@@ -641,7 +641,7 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             wt = w
         else:
             wt = chainer.functions.transpose(w)
-        
+
         np.copyto(y, chainer.functions.linear(alpha*xt, wt, b=(beta*b)).array)
 
     return fn
@@ -683,3 +683,53 @@ def gemm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             cupy.copyto(y, chainer.functions.linear(alpha*xt, wt, b=(beta*b)).array)
 
     return fn
+
+
+def dropout_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    data_io = node.inputs["data"]
+    output_io = node.outputs["output"]
+    opt_mask_io = node.get_output("mask")
+
+    data = data_io.get_data(alloc_map)
+    output = output_io.get_data(alloc_map)
+    opt_mask = opt_mask_io.get_data(alloc_map)
+
+    ratio = node.get_attr("ratio", 0.5)
+
+    def fn():
+        if opt_mask:
+            o, m = chainer.functions.dropout(data,ratio=ratio,return_mask=True)
+            np.copyto(output, o.array)
+            np.copyto(opt_mask, m.array)
+        else:
+            np.copyto(output,chainer.functions.dropout(data,ratio=ratio).array)
+
+    return fn
+
+
+def dropout_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    data_io = node.inputs["data"]
+    output_io = node.outputs["output"]
+    opt_mask_io = node.get_output("mask")
+
+    data = data_io.get_data(alloc_map)
+    output = output_io.get_data(alloc_map)
+    opt_mask = opt_mask_io.get_data(alloc_map)
+
+
+    ratio = node.get_attr("ratio", 0.5)
+
+    def fn():
+        with cupy.cuda.Device(node.device_id):
+            if opt_mask:
+                o, m = chainer.functions.dropout(data,ratio=ratio,return_mask=True)
+                cupy.copyto(output, o.array)
+                cupy.copyto(opt_mask, m.array)
+            else:
+                cupy.copyto(output,chainer.functions.dropout(data,ratio=ratio).array)
+
+    return fn
+
+

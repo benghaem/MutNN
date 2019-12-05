@@ -43,6 +43,13 @@ class Node:
             return fake_io
         return real_io
 
+    def get_output(self, out):
+        real_io = self.outputs.get(out)
+        if not real_io:
+            fake_io = InOut("__fake","__fake",None,None)
+            return fake_io
+        return real_io
+
     def get_input_name(self, inp):
         return self.inputs[inp].name
 

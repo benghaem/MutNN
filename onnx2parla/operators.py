@@ -9,6 +9,7 @@ AVERAGE_POOL = "AveragePool"
 PAD = "Pad"
 FLATTEN = "Flatten"
 GEMM = "Gemm"
+DROPOUT = "Dropout"
 
 # o2p
 O2P_COPY = "o2p_copy"
