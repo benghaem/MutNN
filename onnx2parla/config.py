@@ -7,3 +7,5 @@ class Config:
 
         self.user_width = user_width
         self.computed_batch_size = user_width
+
+        self.debug_passes = False

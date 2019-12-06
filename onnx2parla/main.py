@@ -3,13 +3,13 @@ import numpy as np
 import logging
 import networkx as nx
 
-import backend
-import onnx_frontend as frontend
-from config import Config
-from node import node_stringizer
+import onnx2parla.backend as backend
+import onnx2parla.onnx_frontend as frontend
+from onnx2parla.config import Config
+from onnx2parla.node import node_stringizer
 import datetime
 
-import resnet_data
+import onnx2parla.vision_dataloaders as vision_dataloaders
 
 # from parla import cpu as pcpu
 from parla import cpucores as pcpu_cores
@@ -38,34 +38,54 @@ def debug_print_graph(graph):
         node = graph.nodes[node_id]["node"]
         node.pretty_print()
 
+def build(onnx_path, config):
+    graph = frontend.from_onnx(onnx_path, config)
 
-config = Config(resnet_data.nop_store, resnet_data.get_random, int(sys.argv[2]), 128 * 12 * 4)
+    amap = {}
+    if config.debug_passes:
+        debug_print_graph(graph)
 
-graph = frontend.from_onnx(sys.argv[1], config)
+    passes = [
+        backend.place,
+        backend.copy_insertion,
+        backend.opt_graph_split,
+        backend.allocate,
+        backend.build_graph,
+    ]
 
-amap = {}
-debug_print_graph(graph)
+    for opass in passes:
+        opass(graph, amap, config)
 
-passes = [
-    backend.place,
-    backend.copy_insertion,
-    backend.opt_graph_split,
-    backend.allocate,
-    backend.build_graph,
-]
+        if config.debug_passes:
+            print("---pass: {}---".format(opass.__name__))
+            debug_print_graph(graph)
+            nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
 
-for i, opass in enumerate(passes):
-    opass(graph, amap, config)
+    return Model(graph, config)
 
-    print("---pass: {}---".format(opass.__name__))
-    debug_print_graph(graph)
-    nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
+class Model:
+    def __init__(self, graph, config):
+        self.graph = graph
+        self.config = config
 
+    def run(self):
+        ptasks.spawn(placement=pcpu_cores.cpu(0))(backend.build_execute(self.graph, self.config))
 
-start_time = datetime.datetime.now()
-ptasks.spawn(placement=pcpu_cores.cpu(0))(backend.build_execute(graph, config))
-end_time = datetime.datetime.now()
+if __name__ == "__main__":
+    config = Config(
+        vision_dataloaders.nop_store,
+        vision_dataloaders.get_random,
+        int(sys.argv[2]),
+        128 * 12 * 4,
+    )
 
+    o2p_model = build(sys.argv[1], config)
 
-with open(sys.argv[3],"a+") as f:
-    f.write("{},{}: {}\n".format(sys.argv[1], sys.argv[2], (end_time - start_time).total_seconds()))
+    st = datetime.datetime.now()
+    o2p_model.run()
+    end = datetime.datetime.now()
+
+    time = end-st
+
+    with open(sys.argv[3], "a+") as f:
+        f.write("{},{}: {}\n".format(sys.argv[1], sys.argv[2], time.total_seconds()))

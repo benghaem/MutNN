@@ -12,10 +12,10 @@ from parla import tasks as ptasks
 
 import cupy
 
-from node import Node, InOut
-import kernels
-from config import Config
-import operators as ops
+from onnx2parla.node import Node, InOut
+import onnx2parla.kernels as kernels
+from onnx2parla.config import Config
+import onnx2parla.operators as ops
 from collections import deque
 
 
@@ -497,7 +497,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                     #    loc = pcpu_cores.cpu(node.device_id+2)
                     # loc = pcpu_cores.cpu(2)
 
-                    queue = (batch_id % num_gpus) + 1
+                    queue = (batch_id % (num_gpus+1)) + 1
                     # if (batch_id % 2 == 0):
                     #    loc = pcpu_cores.cpu(1)
                     # else:

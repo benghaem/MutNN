@@ -1,12 +1,13 @@
 import onnx
 from onnx import numpy_helper
 import onnx.utils
+import onnx.shape_inference
 
-from node import InOut, Node
-import operators as ops
-from config import Config
+from onnx2parla.node import InOut, Node
+import onnx2parla.operators as ops
+from onnx2parla.config import Config
 
-import onnx_convert
+import onnx2parla.onnx_convert as onnx_convert
 
 import networkx as nx
 import numpy as np
@@ -35,6 +36,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
 
     # check optimize and infer shapes
     polished_model = onnx.utils.polish_model(model)
+    #polished_model = model
 
     initializers = {}
     value_info = {}
