@@ -63,7 +63,9 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
         # directly convert onnx initializers to static IOs in the graph
         if inp.name in initializers:
             new_io.kind = "static"
-            new_io.data = numpy_helper.to_array(initializers[inp.name]).astype(np.float32)
+            new_io.data = numpy_helper.to_array(initializers[inp.name]).astype(
+                np.float32
+            )
             new_io.shape = np.shape(new_io.data)
 
         # pointers will be allocated later by the allocate pass
@@ -81,8 +83,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
             new_io = InOut(out, None, None, None)
             new_io.kind = "pointer"
             new_io.data = None
-            new_io.shape = onnx_type_to_shape(value_info[out].type,
-                    config.user_width)
+            new_io.shape = onnx_type_to_shape(value_info[out].type, config.user_width)
             io_map[out] = new_io
             logging.log(logging.DEBUG, f"Built IO: {new_io}")
 
@@ -104,9 +105,7 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     # attach a load node for each of the dynamic inputs
     for dyninp_vi in polished_model.graph.input:
         if dyninp_vi.name not in initializers:
-            built_node = build_load_node(
-                dyninp_vi.name, io_map, usage_map, node_id
-            )
+            built_node = build_load_node(dyninp_vi.name, io_map, usage_map, node_id)
             graph.add_node(node_id)
             graph.nodes[node_id]["node"] = built_node
 

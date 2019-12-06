@@ -39,14 +39,14 @@ class Node:
     def get_input(self, inp):
         real_io = self.inputs.get(inp)
         if not real_io:
-            fake_io = InOut("__fake","__fake",None,None)
+            fake_io = InOut("__fake", "__fake", None, None)
             return fake_io
         return real_io
 
     def get_output(self, out):
         real_io = self.outputs.get(out)
         if not real_io:
-            fake_io = InOut("__fake","__fake",None,None)
+            fake_io = InOut("__fake", "__fake", None, None)
             return fake_io
         return real_io
 

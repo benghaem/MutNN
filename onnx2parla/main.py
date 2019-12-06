@@ -11,11 +11,12 @@ import datetime
 
 import resnet_data
 
-#from parla import cpu as pcpu
+# from parla import cpu as pcpu
 from parla import cpucores as pcpu_cores
 from parla import tasks as ptasks
 
-logging.basicConfig(filename="full.log", level=logging.WARNING)
+# disable logging for benchmarking
+logging.disable()
 
 # User functions
 
@@ -28,7 +29,7 @@ def random_data(start_idx, end_idx):
 
 
 def echo_store(arr):
-    sm = sorted(zip(arr[0],range(len(arr[0]))),reverse=True)[0:5]
+    sm = sorted(zip(arr[0], range(len(arr[0]))), reverse=True)[0:5]
     logging.log(logging.INFO, f"stored: {sm}")
 
 
@@ -38,8 +39,7 @@ def debug_print_graph(graph):
         node.pretty_print()
 
 
-config = Config(resnet_data.echo_top5,
-                resnet_data.get_test, 16, 128*12*1)
+config = Config(resnet_data.nop_store, resnet_data.get_random, int(sys.argv[2]), 128 * 12 * 4)
 
 graph = frontend.from_onnx(sys.argv[1], config)
 
@@ -61,9 +61,11 @@ for i, opass in enumerate(passes):
     debug_print_graph(graph)
     nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
 
-# run everything!
+
 start_time = datetime.datetime.now()
 ptasks.spawn(placement=pcpu_cores.cpu(0))(backend.build_execute(graph, config))
 end_time = datetime.datetime.now()
 
-print("Execution time: {}".format(end_time-start_time))
+
+with open(sys.argv[3],"a+") as f:
+    f.write("{},{}: {}\n".format(sys.argv[1], sys.argv[2], (end_time - start_time).total_seconds()))

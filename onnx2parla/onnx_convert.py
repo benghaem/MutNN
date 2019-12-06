@@ -17,7 +17,7 @@ onnx_conversion_info = {
     "Reshape": {"in": ["data", "shape"], "out": ["reshaped"]},
     "Pad": {"in": ["data"], "out": ["output"]},
     "AveragePool": {"in": ["X"], "out": ["Y"]},
-    "Dropout": {"in": ["data"], "out": ["output","mask"]}
+    "Dropout": {"in": ["data"], "out": ["output", "mask"]},
 }
 
 

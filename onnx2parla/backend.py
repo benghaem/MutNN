@@ -23,7 +23,7 @@ PNO_GRAPH_HEAD_ID = -1
 
 
 def get_valid_cuda_devices():
-    valid_ids = [ ]
+    valid_ids = []
     for d_id in range(32):
         try:
             cupy.cuda.Device(d_id).compute_capability
@@ -33,6 +33,7 @@ def get_valid_cuda_devices():
         valid_ids.append(d_id)
 
     return valid_ids
+
 
 def build_copy_node(in_io, out_io, node_id):
     inputs = {"X": in_io}
@@ -105,9 +106,7 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
             for device, gchildren in output_groups[buffer].items():
                 if device != node.get_device():
-                    buffer_on_device = "{}_cpy2{}".format(
-                        active_buffer, device[0]
-                    )
+                    buffer_on_device = "{}_cpy2{}".format(active_buffer, device[0])
                     copy_in_io = InOut(active_buffer, "pointer", None, output_io.shape)
 
                     copy_out_io = InOut(
@@ -132,9 +131,7 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
                     node_id += 1
 
 
-def place(
-    graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
-) -> None:
+def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -> None:
 
     gpu_supported = [
         ops.CONV,
@@ -143,6 +140,7 @@ def place(
         ops.RELU,
         ops.BATCH_NORM,
         ops.FLATTEN,
+        # ops.RESHAPE, ONNX reshape has implied copies
         ops.GLOBALAVERAGEPOOL,
         ops.GEMM,
         ops.DROPOUT,
@@ -162,11 +160,9 @@ def place(
 
     return
 
+
 def build_replicated_io(inp_io, suffix):
-    new_io = InOut(inp_io.name + suffix,
-                       inp_io.kind,
-                       None,
-                       inp_io.shape)
+    new_io = InOut(inp_io.name + suffix, inp_io.kind, None, inp_io.shape)
 
     # copy over static allocation if needed
     if new_io.kind == "static":
@@ -174,6 +170,7 @@ def build_replicated_io(inp_io, suffix):
         np.copyto(new_io.data, inp_io.data)
 
     return new_io
+
 
 def build_replicated_node(other, node_id, instance_id, suffix):
 
@@ -189,8 +186,7 @@ def build_replicated_node(other, node_id, instance_id, suffix):
     for attr_name, attr_v in other.attrs.items():
         attrs[attr_name] = attr_v
 
-    new_node = Node(node_id, other.operator, inputs, outputs, attrs,
-            instance_id)
+    new_node = Node(node_id, other.operator, inputs, outputs, attrs, instance_id)
 
     return new_node
 
@@ -209,8 +205,8 @@ def opt_graph_split(
     # need to rename and assign to the correct device
     cuda_devices = get_valid_cuda_devices()
     num_cuda = len(cuda_devices)
-    
-    config.computed_batch_size = num_cuda * config.user_width;
+
+    config.computed_batch_size = num_cuda * config.user_width
     # there is now +1 node in the graph because of the -1 head
     new_gnode = graph.number_of_nodes() - 1
 
@@ -218,10 +214,10 @@ def opt_graph_split(
 
         # compute the correct split
 
-        #gpu_name_maps = [{}] * num_cuda
-        gpu_name_maps = [ {} for i in range(num_cuda) ]
+        # gpu_name_maps = [{}] * num_cuda
+        gpu_name_maps = [{} for i in range(num_cuda)]
 
-        #source_gnode -> local_gnode
+        # source_gnode -> local_gnode
 
         # add a mapping from og graph head to graph head for all devices
         for i in range(num_cuda):
@@ -238,10 +234,9 @@ def opt_graph_split(
 
             for gpu_idx, device_id in enumerate(cuda_devices):
 
-                device_node = build_replicated_node(source_node,
-                        new_gnode,
-                        gpu_idx,
-                        f"_g{device_id}")
+                device_node = build_replicated_node(
+                    source_node, new_gnode, gpu_idx, f"_g{device_id}"
+                )
 
                 # configure device settings for the new node
                 if source_node.device_type == "gpu":
@@ -254,7 +249,7 @@ def opt_graph_split(
                 graph.add_node(new_gnode)
                 graph.nodes[new_gnode]["node"] = device_node
 
-                #look up source node parent in gpu_name_maps
+                # look up source node parent in gpu_name_maps
                 for gparent in gparents:
                     edge_source = gpu_name_maps[gpu_idx][gparent]
                     graph.add_edge(edge_source, new_gnode)
@@ -281,7 +276,7 @@ def opt_shape(**args):
     # ensure that config.computed_batch_size = sum(all widths)
     # computed batch size is invalid until this pass completes
 
-    #two cases
+    # two cases
 
     # maximum = 64
     # user_width = 80
@@ -290,8 +285,8 @@ def opt_shape(**args):
     # user_width <= maximum
     #   do nothing
 
-
     return
+
 
 def allocate(
     graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
@@ -390,6 +385,7 @@ def build_kernel(
             return kernels.globalAveragePool_cpu(node, alloc_map, config)
         else:
             return kernels.globalAveragePool_gpu(node, alloc_map, config)
+
     if oper == ops.AVERAGE_POOL:
         if node.device_type == "cpu":
             return kernels.average_pool_cpu(node, alloc_map, config)
@@ -401,11 +397,19 @@ def build_kernel(
             return kernels.pad_cpu(node, alloc_map, config)
         else:
             raise NotImplementedError()
+
     if oper == ops.FLATTEN:
         if node.device_type == "cpu":
             return kernels.flatten_cpu(node, alloc_map, config)
         else:
             return kernels.flatten_gpu(node, alloc_map, config)
+
+    if oper == ops.RESHAPE:
+        if node.device_type == "cpu":
+            return kernels.reshape_cpu(node, alloc_map, config)
+        else:
+            return kernels.reshape_gpu(node, alloc_map, config)
+
     if oper == ops.GEMM:
         if node.device_type == "cpu":
             return kernels.gemm_cpu(node, alloc_map, config)
@@ -436,7 +440,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             batches = math.ceil(config.dataset_len / config.computed_batch_size)
             roots = list(graph.successors(PNO_GRAPH_HEAD_ID))
 
-            print("all roots {}".format(roots)) 
+            print("all roots {}".format(roots))
 
             for batch_id in range(batches):
 
@@ -486,17 +490,17 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                         if gchild not in q:
                             q.append(gchild)
 
-                    #loc = None
-                    #if node.device_type == "cpu":
+                    # loc = None
+                    # if node.device_type == "cpu":
                     #    loc = pcpu_cores.cpu(1)
-                    #else:
+                    # else:
                     #    loc = pcpu_cores.cpu(node.device_id+2)
-                        #loc = pcpu_cores.cpu(2)
+                    # loc = pcpu_cores.cpu(2)
 
                     queue = (batch_id % num_gpus) + 1
-                    #if (batch_id % 2 == 0):
+                    # if (batch_id % 2 == 0):
                     #    loc = pcpu_cores.cpu(1)
-                    #else:
+                    # else:
                     #    loc = pcpu_cores.cpu(2)
                     loc = pcpu_cores.cpu(queue)
 
@@ -518,7 +522,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                         dep_string = dep_string + " " + task_obj_map[dep]
                     logging.log(logging.INFO, "deps {}".format(dep_string))
 
-                #if batch_id % 2 == 0:
+                # if batch_id % 2 == 0:
                 #    await node.last_task_obj
 
     return fn
