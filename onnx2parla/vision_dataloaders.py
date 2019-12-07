@@ -37,7 +37,8 @@ def get_test(s, e):
 def get_random(s, e):
     print(f"load: {s}-{e}")
     batch_size = e - s
-    d = random_images[s:e]
+    s = s % random_images.shape[0]
+    d = random_images[s:s+batch_size]
     return d
 
 
