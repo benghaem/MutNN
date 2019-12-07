@@ -11,6 +11,8 @@ FLATTEN = "Flatten"
 GEMM = "Gemm"
 DROPOUT = "Dropout"
 RESHAPE = "Reshape"
+CLIP = "Clip"
+REDUCE_MEAN = "ReduceMean"
 
 # o2p
 O2P_COPY = "o2p_copy"

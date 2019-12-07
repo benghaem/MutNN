@@ -62,6 +62,25 @@ def flatten_like(shape_x, n_axis):
 
     return (first_half_product, second_half_product)
 
+def mean_like(shape, axes, keep_dims):
+    edit_shape = list(shape)
+    for ax in axes:
+        if keep_dims:
+            edit_shape[ax] = 1
+        else:
+            edit_shape[ax] = -1
+
+    if not keep_dims:
+        new_shape = []
+        for v in edit_shape:
+            if v > 0:
+                new_shape.append(v)
+        return tuple(new_shape)
+
+    else:
+        return tuple(edit_shape)
+
+
 def infer_shape(node):
 
     print("INFER SHAPE for:")
@@ -76,9 +95,19 @@ def infer_shape(node):
         shape_x = node.inputs["X"].shape
         node.outputs["Y"].shape = identity(shape_x)
 
+    if node.operator == ops.CLIP:
+        shape_x = node.inputs["input"].shape
+        node.outputs["output"].shape = identity(shape_x)
+
     if node.operator == ops.BATCH_NORM:
         shape_x = node.inputs["X"].shape
         node.outputs["Y"].shape = identity(shape_x)
+
+    if node.operator == ops.REDUCE_MEAN:
+        shape_x = node.inputs["data"].shape
+        axes = node.get_attr("axes")
+        keep_dims = (node.get_attr("keepdims",1) == 1)
+        node.outputs["reduced"].shape = mean_like(shape_x, axes, keep_dims)
 
     if node.operator == ops.DROPOUT:
         shape_x = node.inputs["data"].shape

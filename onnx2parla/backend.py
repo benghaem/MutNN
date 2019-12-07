@@ -153,10 +153,12 @@ def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -
         ops.RELU,
         ops.BATCH_NORM,
         ops.FLATTEN,
-        # ops.RESHAPE, ONNX reshape has implied copies
+        ops.RESHAPE, #ONNX reshape has implied copies
         ops.GLOBALAVERAGEPOOL,
         ops.GEMM,
         ops.DROPOUT,
+        ops.CLIP,
+        ops.REDUCE_MEAN,
     ]
 
     cuda_devices = get_valid_cuda_devices()
@@ -434,6 +436,18 @@ def build_kernel(
             return kernels.dropout_cpu(node, alloc_map, config)
         else:
             return kernels.dropout_gpu(node, alloc_map, config)
+
+    if oper == ops.CLIP:
+        if node.device_type == "cpu":
+            return kernels.clip_v6_cpu(node, alloc_map, config)
+        else:
+            return kernels.clip_v6_gpu(node, alloc_map, config)
+
+    if oper == ops.REDUCE_MEAN:
+        if node.device_type == "cpu":
+            return kernels.reduce_mean_cpu(node, alloc_map, config)
+        else:
+            return kernels.reduce_mean_gpu(node, alloc_map, config)
 
     if oper == ops.O2P_GRAPH_HEAD:
         return None

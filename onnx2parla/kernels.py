@@ -782,3 +782,131 @@ def reshape_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
         np.copyto(reshaped, chainer.functions.reshape(data, shape_tuple).array)
 
     return fn
+
+
+def clip_v11_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    input_io = node.inputs["input"]
+    min_io = node.get_input("min")
+    max_io = node.get_input("max")
+
+    output_io =node.outputs["output"]
+
+    inp = input_io.get_data(alloc_map)
+    min_data = min_io.get_data(alloc_map)
+    if min_data is None:
+        min_data = [-np.inf]
+    max_data = max_io.get_data(alloc_map)
+    if max_data is None:
+        max_data = [np.inf]
+
+    output = output_io.get_data(alloc_map)
+
+    def fn():
+        np.copyto(output, chainer.functions.clip(inp, min_data[0],
+            max_data[0]).array)
+
+    return fn
+
+def clip_v6_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    input_io = node.inputs["input"]
+    min_v = node.get_attr("min", -3.402823e38)
+    max_v = node.get_attr("max", 3.402823e38)
+
+    output_io =node.outputs["output"]
+
+    inp = input_io.get_data(alloc_map)
+    output = output_io.get_data(alloc_map)
+
+    def fn():
+        cupy.copyto(output, chainer.functions.clip(inp, min_v,
+            max_v).array)
+
+    return fn
+
+
+def clip_v6_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+
+    input_io = node.inputs["input"]
+    min_v = node.get_attr("min", -3.402823e38)
+    max_v = node.get_attr("max", 3.402823e38)
+
+    output_io =node.outputs["output"]
+
+    inp = input_io.get_data(alloc_map)
+    output = output_io.get_data(alloc_map)
+
+
+    def fn():
+        np.copyto(output, chainer.functions.clip(inp, min_v, max_v).array)
+
+    return fn
+
+def clip_v11_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    input_io = node.inputs["input"]
+    min_io = node.get_input("min")
+    max_io = node.get_input("max")
+
+    output_io =node.outputs["output"]
+
+    inp = input_io.get_data(alloc_map)
+    min_data = min_io.get_data(alloc_map)
+    if min_data is None:
+        min_data = cupy.array([float('-inf')])
+
+    max_data = max_io.get_data(alloc_map)
+    if max_data is None:
+        max_data = cupy.array([float('inf')])
+
+    output = output_io.get_data(alloc_map)
+
+    def fn():
+        cupy.copyto(output, chainer.functions.clip(inp, min_data[0],
+            max_data[0]).array)
+
+    return fn
+
+
+
+
+def reduce_mean_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    data_io = node.inputs["data"]
+    reduced_io =node.outputs["reduced"]
+
+    data = data_io.get_data(alloc_map)
+    reduced = reduced_io.get_data(alloc_map)
+
+    axes = node.get_attr("axes")
+    keep_dims = (node.get_attr("keepdims",1) == 1)
+
+    def fn():
+        np.mean(data, axis=axes, out=reduced, keepdims=keep_dims)
+
+    return fn
+
+
+
+def reduce_mean_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    data_io = node.inputs["data"]
+    reduced_io =node.outputs["reduced"]
+
+    data = data_io.get_data(alloc_map)
+    reduced = reduced_io.get_data(alloc_map)
+
+    axes = node.get_attr("axes")
+    keep_dims = (node.get_attr("keepdims",1) == 1)
+
+    def fn():
+        cupy.mean(data, axis=axes, out=reduced, keepdims=keep_dims)
+
+    return fn
+
+
+
+
+
