@@ -7,7 +7,7 @@ import onnx2parla.vision_dataloaders as vidl
 import sys
 import datetime
 
-models = [tvmodels.vgg16, tvmodels.mobilenet_v2]
+models = [tvmodels.resnet18, tvmodels.vgg16, tvmodels.mobilenet_v2]
 
 batch_len = int(sys.argv[1])
 total_len = int(sys.argv[2])
@@ -16,6 +16,7 @@ ref_input = torch.tensor(vidl.get_random(0,batch_len))
 
 for model_fn in models:
 
+    name = str(model_fn.__name__)
     model = model_fn()
     # write model out to onnx
     torch.onnx.export(model, (ref_input), "bench_out.onnx", keep_initializers_as_inputs=True, verbose=True)
@@ -29,6 +30,7 @@ for model_fn in models:
 
     # cudaify model
     model.to('cuda')
+    model = torch.nn.DataParallel(model)
 
     with torch.no_grad():
         for batch_id in range(0,total_len,batch_len):
@@ -39,12 +41,11 @@ for model_fn in models:
 
     pytorch_res = end - st
 
-
     del model
 
     # ONNXRUNTIME BENCH
     ort_session = ort.InferenceSession("bench_out.onnx")
-    
+
     st = datetime.datetime.now()
     for batch_id in range(0,total_len,batch_len):
         batch = {"input.1": vidl.get_random(batch_id, batch_id + batch_len)}
@@ -67,4 +68,6 @@ for model_fn in models:
 
     o2p_res = end-st
 
-    print(pytorch_res, ort_res, o2p_res)
+    del o2p_model
+
+    print(name, pytorch_res, ort_res, o2p_res)
