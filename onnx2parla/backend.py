@@ -16,6 +16,7 @@ from onnx2parla.node import Node, InOut
 import onnx2parla.kernels as kernels
 from onnx2parla.config import Config
 import onnx2parla.operators as ops
+from onnx2parla.onnx_shape_inference import infer_shape
 from collections import deque
 
 
@@ -43,6 +44,18 @@ def build_copy_node(in_io, out_io, node_id):
 
     return new_node
 
+
+def shape_inference(graph: nx.DiGraph, alloc_map, config: Config) -> None:
+
+    # ensure that input shapes are available
+    fixed_topo = list(nx.topological_sort(graph))
+
+    for gnode in fixed_topo:
+        node = graph.nodes[gnode]["node"]
+
+        infer_shape(node)
+
+    return
 
 def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     """

@@ -46,6 +46,7 @@ def build(onnx_path, config):
         debug_print_graph(graph)
 
     passes = [
+        backend.shape_inference,
         backend.place,
         backend.copy_insertion,
         backend.opt_graph_split,
@@ -73,11 +74,12 @@ class Model:
 
 if __name__ == "__main__":
     config = Config(
-        vision_dataloaders.nop_store,
-        vision_dataloaders.get_random,
+        vision_dataloaders.echo_top5,
+        vision_dataloaders.get_test,
         int(sys.argv[2]),
         128 * 12 * 4,
     )
+    config.debug_passes = True
 
     o2p_model = build(sys.argv[1], config)
 

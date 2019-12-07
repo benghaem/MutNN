@@ -35,8 +35,8 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
     model = onnx.load_model(fname)
 
     # check optimize and infer shapes
-    polished_model = onnx.utils.polish_model(model)
-    #polished_model = model
+    #polished_model = onnx.utils.polish_model(model)
+    polished_model = model
 
     initializers = {}
     value_info = {}
@@ -49,14 +49,14 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
 
     # this captures all internal values, but not the graph output for some
     # reason (onnx spec is strange)
-    for vi in polished_model.graph.value_info:
-        value_info[vi.name] = vi
-        logging.log(logging.DEBUG, f"Registered value info: {vi.name}")
+    #for vi in polished_model.graph.value_info:
+    #    value_info[vi.name] = vi
+    #    logging.log(logging.DEBUG, f"Registered value info: {vi.name}")
 
-    # this captures the graph output
-    for vi in polished_model.graph.output:
-        value_info[vi.name] = vi
-        logging.log(logging.DEBUG, f"Registered value info: {vi.name} (out)")
+    ## this captures the graph output
+    #for vi in polished_model.graph.output:
+    #    value_info[vi.name] = vi
+    #    logging.log(logging.DEBUG, f"Registered value info: {vi.name} (out)")
 
     # this captures all model inputs
     for inp in polished_model.graph.input:
@@ -85,7 +85,8 @@ def from_onnx(fname: str, config: Config) -> nx.DiGraph:
             new_io = InOut(out, None, None, None)
             new_io.kind = "pointer"
             new_io.data = None
-            new_io.shape = onnx_type_to_shape(value_info[out].type, config.user_width)
+            #new_io.shape = onnx_type_to_shape(value_info[out].type, config.user_width)
+            new_io.shape = None
             io_map[out] = new_io
             logging.log(logging.DEBUG, f"Built IO: {new_io}")
 

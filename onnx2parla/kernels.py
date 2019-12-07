@@ -518,7 +518,7 @@ def average_pool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None
 
     kernel_size = node.get_attr("kernel_shape")
     padding = node.get_attr("pads", [0])[0]
-    stride = node.get_attr("strides", [0])[0]
+    stride = node.get_attr("strides", [1])[0]
 
     def fn():
         out = chainer.functions.average_pooling_2d(
