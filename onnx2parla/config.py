@@ -9,3 +9,5 @@ class Config:
         self.computed_batch_size = user_width
 
         self.debug_passes = False
+        self.use_simple_model_para = False
+        self.use_data_para = True

@@ -45,14 +45,25 @@ def build(onnx_path, config):
     if config.debug_passes:
         debug_print_graph(graph)
 
-    passes = [
-        backend.shape_inference,
-        backend.place,
-        backend.copy_insertion,
-        backend.opt_graph_split,
-        backend.allocate,
-        backend.build_graph,
-    ]
+    setup_passes = [backend.shape_inference,
+                    backend.place]
+
+    final_passes = [backend.allocate,
+                    backend.build_graph]
+
+    if config.use_data_para:
+        opt_passes = [
+            backend.copy_insertion,
+            backend.opt_graph_split,
+        ]
+
+    if config.use_simple_model_para:
+        opt_passes = [
+                backend.opt_simple_model_para,
+                backend.copy_insertion
+                ]
+
+    passes = setup_passes + opt_passes + final_passes
 
     for opass in passes:
         opass(graph, amap, config)
@@ -80,6 +91,8 @@ if __name__ == "__main__":
         128 * 12 * 4,
     )
     config.debug_passes = True
+    config.use_simple_model_para = True
+    config.use_data_para = False
 
     o2p_model = build(sys.argv[1], config)
 

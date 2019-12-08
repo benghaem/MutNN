@@ -129,6 +129,8 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
                     new_copy_node = build_copy_node(copy_in_io, copy_out_io, node_id)
                     new_copy_node.device_type = device[0]
                     new_copy_node.device_id = device[1]
+                    new_copy_node.set_attr("target_device", device)
+                    new_copy_node.set_attr("source_device", node.get_device())
 
                     graph.add_node(node_id)
                     graph.nodes[node_id]["node"] = new_copy_node
@@ -174,6 +176,22 @@ def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -
         else:
             node.device_type = "cpu"
             node.device_id = 0
+
+    return
+
+def opt_simple_model_para(graph: nx.DiGraph, alloc_map, config: Config) -> None:
+
+    cuda_devices = get_valid_cuda_devices()
+    num_cuda = len(cuda_devices)
+
+    total_nodes = graph.number_of_nodes()
+
+    split_len = total_nodes / num_cuda
+
+    for gnode in graph.nodes:
+        node = graph.nodes[gnode]["node"]
+        if node.device_type == "gpu":
+            node.device_id = node.node_id // split_len
 
     return
 

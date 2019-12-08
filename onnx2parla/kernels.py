@@ -64,7 +64,11 @@ def copy(node: Node, alloc_map, config: Config):
     x = x_io.get_data(alloc_map)
     z = z_io.get_data(alloc_map)
 
+    source_device_id = node.get_attr("source_device")[1]
+    target_device_id = node.get_attr("target_device")[1]
+
     tz = type(z)
+    tx = type(x)
 
     def fn():
         # time_st = datetime.datetime.now()
@@ -73,9 +77,17 @@ def copy(node: Node, alloc_map, config: Config):
             np.copyto(z, cupy.asnumpy(x))
             # assert cupy.testing.assert_array_equal(z,x)
 
-        if tz == cupy.core.core.ndarray:  # to gpu
+        if tz == cupy.core.core.ndarray and tx != cupy.core.core.ndarray:  # to gpu
             with cupy.cuda.Device(node.device_id):
                 cupy.copyto(z, cupy.asarray(x))
+
+        if tz == cupy.core.core.ndarray and tx == cupy.core.core.ndarray:  # to gpu
+            tmp = None
+            with cupy.cuda.Device(source_device_id):
+                tmp = cupy.asnumpy(x)
+            with cupy.cuda.Device(target_device_id):
+                cupy.copyto(z, cupy.asarray(tmp))
+
             # assert cupy.testing.assert_array_equal(z,x)
 
             # assert z.shape == x.shape
