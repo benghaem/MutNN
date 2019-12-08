@@ -60,7 +60,7 @@ def build(onnx_path, config):
     if config.use_simple_model_para:
         opt_passes = [
                 backend.opt_simple_model_para,
-                backend.copy_insertion
+                backend.copy_insertion,
                 ]
 
     passes = setup_passes + opt_passes + final_passes
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         vision_dataloaders.echo_top5,
         vision_dataloaders.get_test,
         int(sys.argv[2]),
-        128 * 12 * 4,
+        int(sys.argv[3]),
     )
     config.debug_passes = True
     config.use_simple_model_para = True
@@ -102,5 +102,5 @@ if __name__ == "__main__":
 
     time = end-st
 
-    with open(sys.argv[3], "a+") as f:
+    with open(sys.argv[4], "a+") as f:
         f.write("{},{}: {}\n".format(sys.argv[1], sys.argv[2], time.total_seconds()))

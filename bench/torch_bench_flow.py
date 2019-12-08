@@ -10,7 +10,7 @@ import time
 import gc
 
 models = [tvmodels.mobilenet_v2, tvmodels.resnet50, tvmodels.vgg16]
-targets = ["pytorch","o2p","ort"]
+targets = ["pytorch","o2p","ort","o2p_model"]
 
 target_runtime = int(sys.argv[1])
 model_idx = int(sys.argv[2])
@@ -84,5 +84,20 @@ with open(outfile, "a+") as f:
         end = datetime.datetime.now()
 
         res = end-st
+
+    # ONNX2PARLA BENCH
+    if target == "o2p_model":
+        config = o2p.Config(vidl.nop_store,vidl.get_random,batch_len,total_len)
+        config.debug_passes = False
+        config.use_simple_model_para = True
+        config.use_data_para = False
+        o2p_model = o2p.build("bench_out.onnx", config)
+
+        st = datetime.datetime.now()
+        o2p_model.run()
+        end = datetime.datetime.now()
+
+        res = end-st
+
 
     f.write("{},{},{},{},{}\n".format(model_name,target,batch_len,total_len,res.total_seconds()))

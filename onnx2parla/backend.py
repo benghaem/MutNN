@@ -35,7 +35,7 @@ def get_valid_cuda_devices():
 
     return valid_ids
 
-
+       
 def build_copy_node(in_io, out_io, node_id):
     inputs = {"X": in_io}
     outputs = {"Z": out_io}
@@ -83,12 +83,21 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     """
 
     # get the starting id for new nodes
+   
     node_id = graph.number_of_nodes()
     total_nodes = node_id
 
     # manually iterate over all the known node id's before we did modifications
     # to the graph. This way we can modify the graph as we traverse it
-    for gnode in range(total_nodes):
+
+    # copy iterator
+    fixed_node_set = list(graph.nodes())
+
+    # don't apply to PNO HEAD
+    if PNO_GRAPH_HEAD_ID in fixed_node_set:
+        fixed_node_set.remove(PNO_GRAPH_HEAD_ID)
+
+    for gnode in fixed_node_set:
         node = graph.nodes[gnode]["node"]
 
         # here we store a list of nodes for each unique set of
@@ -181,17 +190,26 @@ def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -
 
 def opt_simple_model_para(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
+    graph.add_node(PNO_GRAPH_HEAD_ID)
+    graph.add_edge(PNO_GRAPH_HEAD_ID, 0)
+
+    graph.nodes[PNO_GRAPH_HEAD_ID]["node"] = Node(-1, ops.O2P_GRAPH_HEAD, {}, {}, {}, 0)
+
     cuda_devices = get_valid_cuda_devices()
     num_cuda = len(cuda_devices)
 
     total_nodes = graph.number_of_nodes()
 
-    split_len = total_nodes / num_cuda
+    #HACK
+    split_len = total_nodes // 5
 
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
         if node.device_type == "gpu":
             node.device_id = node.node_id // split_len
+            # HACKY SAFETY
+            if node.device_id > num_cuda-1:
+                node.device_id = num_cuda - 1
 
     return
 
@@ -484,10 +502,11 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
 
             task_obj_map = {}
 
-            batches = math.ceil(config.dataset_len / config.computed_batch_size)
+            batches = math.ceil(config.dataset_len // config.computed_batch_size)
             roots = list(graph.successors(PNO_GRAPH_HEAD_ID))
 
             print("all roots {}".format(roots))
+            print(batches)
 
             for batch_id in range(batches):
 
