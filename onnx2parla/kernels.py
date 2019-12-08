@@ -529,6 +529,36 @@ def average_pool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None
     return fn
 
 
+def average_pool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
+
+    """
+        Function:
+                Y = AVERAGE_POOL(X)
+            --> CONVE NCHW to NC11 (Average on HW dimensions)
+    """
+
+    x_io = node.inputs["X"]
+    y_io = node.outputs["Y"]
+
+    x = x_io.get_data(alloc_map)
+    y = y_io.get_data(alloc_map)
+
+    kernel_size = node.get_attr("kernel_shape")
+    padding = node.get_attr("pads", [0])[0]
+    stride = node.get_attr("strides", [1])[0]
+
+    def fn():  
+        with cupy.cuda.Device(node.device_id):
+            out = chainer.functions.average_pooling_2d(
+                x, kernel_size, stride=stride, pad=padding
+            ).array
+            cupy.copyto(y, out)
+
+    return fn
+
+
+
+
 def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     """
@@ -820,8 +850,9 @@ def clip_v6_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     output = output_io.get_data(alloc_map)
 
     def fn():
-        cupy.copyto(output, chainer.functions.clip(inp, min_v,
-            max_v).array)
+        with cupy.cuda.Device(node.device_id):
+            cupy.copyto(output, chainer.functions.clip(inp, min_v,
+                max_v).array)
 
     return fn
 
@@ -864,8 +895,9 @@ def clip_v11_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     output = output_io.get_data(alloc_map)
 
     def fn():
-        cupy.copyto(output, chainer.functions.clip(inp, min_data[0],
-            max_data[0]).array)
+        with cupy.cuda.Device(node.device_id):
+            cupy.copyto(output, chainer.functions.clip(inp, min_data[0],
+                max_data[0]).array)
 
     return fn
 
@@ -902,7 +934,8 @@ def reduce_mean_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]
     keep_dims = (node.get_attr("keepdims",1) == 1)
 
     def fn():
-        cupy.mean(data, axis=axes, out=reduced, keepdims=keep_dims)
+        with cupy.cuda.Device(node.device_id):
+            cupy.mean(data, axis=axes, out=reduced, keepdims=keep_dims)
 
     return fn
 

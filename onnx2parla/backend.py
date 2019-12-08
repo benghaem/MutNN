@@ -155,6 +155,8 @@ def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -
         ops.FLATTEN,
         ops.RESHAPE, #ONNX reshape has implied copies
         ops.GLOBALAVERAGEPOOL,
+        ops.AVERAGE_POOL,
+        ops.PAD,
         ops.GEMM,
         ops.DROPOUT,
         ops.CLIP,
@@ -405,7 +407,7 @@ def build_kernel(
         if node.device_type == "cpu":
             return kernels.average_pool_cpu(node, alloc_map, config)
         else:
-            raise NotImplementedError()
+            return kernels.average_pool_gpu(node, alloc_map, config)
 
     if oper == ops.PAD:
         if node.device_type == "cpu":
@@ -524,7 +526,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                     #    loc = pcpu_cores.cpu(node.device_id+2)
                     # loc = pcpu_cores.cpu(2)
 
-                    queue = (batch_id % (num_gpus+1)) + 1
+                    queue = (batch_id % (num_gpus)) + 1
                     # if (batch_id % 2 == 0):
                     #    loc = pcpu_cores.cpu(1)
                     # else:

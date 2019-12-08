@@ -2,9 +2,9 @@
 
 echo "Testing: $1"
 
-total_len=12288
+total_len=6144
 
-for target in 0 1 2;
+for target in 2;
 do
     for model in 0 1 2;
     do
