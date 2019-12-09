@@ -1,14 +1,14 @@
 # ONNX2Parla
 
+__WARNING: This is alpha software that relies on alpha software. Have fun!__
+
 ONNX2Parla is an experimental ONNX runtime that uses
 [Parla](https://github.com/ut-parla/Parla.py) as a task queue.
 
-ONNX2Parla supports seamless multi-GPU graph execution on CUDA GPUs and provides
+The system supports seamless multi-GPU graph execution on CUDA GPUs and provides
 baseline implementations of both model and data parallelism.
 
-__WARNING: This is alpha software that relies on alpha software. Have fun!__
-
-Developed by Benjamin Ghaemmaghami & Saraubh Gupta
+Developed by Benjamin Ghaemmaghami & Saurabh Gupta
 
 ## Usage
 
@@ -43,7 +43,7 @@ The full list is [here](https://docs.google.com/spreadsheets/d/1veBajIq8DIdUIYmd
 
 The [ONNX Model Zoo](https://github.com/onnx/models) is a great place to find a
 wide selection of pre-trained neural network graphs. All of the major
-frameworks also support some form of support for conversion to ONNX Graphs
+frameworks have some capability to be converted to ONNX graphs.
 
 ## Known Issues / Limitations
 
