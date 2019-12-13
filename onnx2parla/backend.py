@@ -35,7 +35,7 @@ def get_valid_cuda_devices():
 
     return valid_ids
 
-       
+
 def build_copy_node(in_io, out_io, node_id):
     inputs = {"X": in_io}
     outputs = {"Z": out_io}
@@ -56,6 +56,7 @@ def shape_inference(graph: nx.DiGraph, alloc_map, config: Config) -> None:
         infer_shape(node)
 
     return
+
 
 def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     """
@@ -83,7 +84,7 @@ def copy_insertion(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     """
 
     # get the starting id for new nodes
-   
+
     node_id = graph.number_of_nodes()
     total_nodes = node_id
 
@@ -164,7 +165,7 @@ def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -
         ops.RELU,
         ops.BATCH_NORM,
         ops.FLATTEN,
-        ops.RESHAPE, #ONNX reshape has implied copies
+        ops.RESHAPE,  # ONNX reshape has implied copies
         ops.GLOBALAVERAGEPOOL,
         ops.AVERAGE_POOL,
         ops.PAD,
@@ -188,6 +189,7 @@ def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -
 
     return
 
+
 def opt_simple_model_para(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
     graph.add_node(PNO_GRAPH_HEAD_ID)
@@ -200,7 +202,7 @@ def opt_simple_model_para(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
     total_nodes = graph.number_of_nodes()
 
-    #HACK
+    # HACK
     split_len = total_nodes // 5
 
     for gnode in graph.nodes:
@@ -208,7 +210,7 @@ def opt_simple_model_para(graph: nx.DiGraph, alloc_map, config: Config) -> None:
         if node.device_type == "gpu":
             node.device_id = node.node_id // split_len
             # HACKY SAFETY
-            if node.device_id > num_cuda-1:
+            if node.device_id > num_cuda - 1:
                 node.device_id = num_cuda - 1
 
     return
@@ -508,6 +510,12 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             print("all roots {}".format(roots))
             print(batches)
 
+            num_streams = 4
+            streams = []
+
+            for i in range(num_streams):
+                streams.append(cupy.cuda.Stream())
+
             for batch_id in range(batches):
 
                 # initialize with roots of tree
@@ -556,22 +564,14 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                         if gchild not in q:
                             q.append(gchild)
 
-                    # loc = None
-                    # if node.device_type == "cpu":
-                    #    loc = pcpu_cores.cpu(1)
-                    # else:
-                    #    loc = pcpu_cores.cpu(node.device_id+2)
-                    # loc = pcpu_cores.cpu(2)
-
-                    queue = (batch_id % (num_gpus)) + 1
-                    # if (batch_id % 2 == 0):
-                    #    loc = pcpu_cores.cpu(1)
-                    # else:
-                    #    loc = pcpu_cores.cpu(2)
+                    queue = (batch_id % (num_gpus*4)) + 1
                     loc = pcpu_cores.cpu(queue)
 
+                    node.streams = streams
+                    node.build_wrapper()
+
                     node.last_task_obj = ptasks.spawn(placement=loc, dependencies=deps)(
-                        node.fn
+                        node.wrapper_fn
                     )
 
                     node.last_launch_batch_id += 1
