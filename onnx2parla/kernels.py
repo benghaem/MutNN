@@ -262,18 +262,27 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     dilations = node.get_attr("dilations")[0]  # Assuming same padding in all directions
     groups = node.get_attr("group", 1)
 
+    stride = (stride,stride) 
+    padding = (padding,padding)
+    dilations = (dilations,dilations)
+
     def fn():
         # time_st = datetime.datetime.now()
         # logging.log(logging.INFO, f"CONVOP got -->  {x[-1]} CONVOP")
 
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(
+
+            cupy.cudnn.convolution_forward(
+                x,
+                w,
+                b,
                 y,
-                (
-                    chainer.functions.convolution_2d(
-                        x, w, b, stride=stride, pad=padding, dilate=dilations, groups=groups
-                    )
-                ).array,
+                padding,
+                stride,
+                dilations,
+                groups,
+                auto_tune = False,
+                tensor_core = 'auto'
             )
 
         # time_end = datetime.datetime.now()
@@ -390,17 +399,14 @@ def maxpool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            out = cupy.zeros_like(y)
-            chainer.backends.cuda.cudnn.pooling_forward(
+            cupy.cudnn.pooling_forward(
                 x,
-                out,
+                y,
                 (kernel_shape[0], kernel_shape[1]),
                 (stride, stride),
                 (padding, padding),
-                chainer.backends.cuda.cuda.cudnn.CUDNN_POOLING_MAX,
+                cupy.cuda.cudnn.CUDNN_POOLING_MAX,
             )
-
-            cupy.copyto(y, out)
 
     return fn
 
@@ -486,8 +492,17 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     if epsilon < 1e-05:
         epsilon = 1e-05
 
+    # modeled off of the chainer support
+
+
     def fn():
         with cupy.cuda.Device(node.device_id):
+
+            #cupy.cudnn.batch_normalization_forward_inference(
+            #    x, gamma, beta, mean, var, epsilon, False,
+            #    cupy.cuda.cudnn.CUDNN_BATCHNORM_PER_ACTIVATION
+            #)
+
             cupy.copyto(
                 y,
                 chainer.functions.fixed_batch_normalization(
@@ -863,8 +878,7 @@ def clip_v6_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(output, chainer.functions.clip(inp, min_v,
-                max_v).array)
+            cupy.clip(inp, a_min=min_v, a_max=max_v, out=output)
 
     return fn
 
