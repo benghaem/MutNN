@@ -85,8 +85,8 @@ class Model:
 
 if __name__ == "__main__":
     config = Config(
-        vision_dataloaders.echo_top5,
-        vision_dataloaders.get_test,
+        vision_dataloaders.nop_store,
+        vision_dataloaders.get_random,
         int(sys.argv[2]),
         int(sys.argv[3]),
     )
