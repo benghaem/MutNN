@@ -510,7 +510,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             print("all roots {}".format(roots))
             print(batches)
 
-            num_streams = 8
+            num_streams = 4
             streams = []
 
             for i in range(num_streams):
@@ -564,7 +564,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                         if gchild not in q:
                             q.append(gchild)
 
-                    queue = (batch_id % (num_gpus*2)) + 1
+                    queue = (batch_id % (num_gpus*4)) + 1
                     loc = pcpu_cores.cpu(queue)
 
                     node.streams = streams

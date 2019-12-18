@@ -79,7 +79,7 @@ def copy(node: Node, alloc_map, config: Config):
 
         if tz == cupy.core.core.ndarray and tx != cupy.core.core.ndarray:  # to gpu
             with cupy.cuda.Device(node.device_id):
-                cupy.copyto(z, cupy.asarray(x))
+                cupy.add(cupy.asarray(x),0, out=z)
 
         if tz == cupy.core.core.ndarray and tx == cupy.core.core.ndarray:  # to gpu
             tmp = None
