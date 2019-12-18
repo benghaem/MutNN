@@ -334,7 +334,8 @@ def relu_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(y, chainer.functions.relu(x).array)
+            #hack to get the copy off the default stream
+            cupy.add(cupy.cudnn.activation_forward(x, cupy.cuda.cudnn.CUDNN_ACTIVATION_RELU),0,out=y)
 
     return fn
 
@@ -504,17 +505,18 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     def fn():
         with cupy.cuda.Device(node.device_id):
 
-            #cupy.cudnn.batch_normalization_forward_inference(
-            #    x, gamma, beta, mean, var, epsilon, False,
-            #    cupy.cuda.cudnn.CUDNN_BATCHNORM_PER_ACTIVATION
-            #)
+            #This is a hack to avoid the device to device copy stuck on the default stream
+            cupy.add(cupy.cudnn.batch_normalization_forward_inference(
+                x, gamma, beta, mean, var, epsilon, True,
+                cupy.cuda.cudnn.CUDNN_BATCHNORM_SPATIAL
+            ),0,out=y)
 
-            cupy.copyto(
-                y,
-                chainer.functions.fixed_batch_normalization(
-                    x, gamma, beta, mean, var, eps=epsilon
-                ).array,
-            )
+            #cupy.copyto(
+            #    y,
+            #    chainer.functions.fixed_batch_normalization(
+            #        x, gamma, beta, mean, var, eps=epsilon
+            #    ).array,
+            #)
 
     return fn
 
@@ -630,7 +632,8 @@ def globalAveragePool_gpu(node: Node, alloc_map, config: Config) -> Callable[[],
             out = chainer.functions.average_pooling_2d(
                 x, (x.shape[2], x.shape[3])
             ).array
-            cupy.copyto(y, out)
+            #hack to force copy off of default stream
+            cupy.add(out, 0, out=y)
             # logging.log(logging.INFO, f"On GPU {node.device_id}")
 
     return fn
@@ -672,7 +675,8 @@ def flatten_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(y, cupy.reshape(x, (x.shape[0], -1)))
+            # hack to get copy off the default stream
+            cupy.add(cupy.reshape(x, (x.shape[0], -1)),0, out=y)
 
     return fn
 
@@ -739,15 +743,18 @@ def gemm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     def fn():
         with cupy.cuda.Device(node.device_id):
             if transX == 1:
-                xt = chainer.functions.transpose(x)
+                #xt = chainer.functions.transpose(x)
+                xt = cupy.transpose(x)
             else:
                 xt = x
             if transW == 1:
-                wt = w
+                #wt = chainer.functions.transpose(w)
+                wt = cupy.transpose(w)
             else:
-                wt = chainer.functions.transpose(w)
+                wt = w
 
-            cupy.copyto(y, chainer.functions.linear(alpha * xt, wt, b=(beta * b)).array)
+            z = cupy.dot(alpha * xt, wt)
+            cupy.add(z, beta * b, out = y)
 
     return fn
 
