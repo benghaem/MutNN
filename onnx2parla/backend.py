@@ -514,7 +514,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
             streams = []
 
             for i in range(num_streams):
-                streams.append(cupy.cuda.Stream())
+                streams.append(cupy.cuda.Stream(non_blocking=False))
 
             for batch_id in range(batches):
 
@@ -564,7 +564,7 @@ def build_execute(graph: nx.DiGraph, config: Config) -> Callable[[], None]:
                         if gchild not in q:
                             q.append(gchild)
 
-                    queue = (batch_id % (num_gpus*4)) + 1
+                    queue = (batch_id % (num_gpus)) + 1
                     loc = pcpu_cores.cpu(queue)
 
                     node.streams = streams
