@@ -79,7 +79,7 @@ def copy(node: Node, alloc_map, config: Config):
 
         if tz == cupy.core.core.ndarray and tx != cupy.core.core.ndarray:  # to gpu
             with cupy.cuda.Device(node.device_id):
-                cupy.copyto(z, cupy.asarray(x))
+                cupy.add(cupy.asarray(x),0, out=z)
 
         if tz == cupy.core.core.ndarray and tx == cupy.core.core.ndarray:  # to gpu
             tmp = None
@@ -198,7 +198,7 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(z, x + y)
+            cupy.add(x,y,out=z)
 
     return fn
 
@@ -233,7 +233,13 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
             y,
             (
                 chainer.functions.convolution_2d(
-                    x, w, b=b, stride=stride, pad=padding, dilate=dilations, groups=groups
+                    x,
+                    w,
+                    b=b,
+                    stride=stride,
+                    pad=padding,
+                    dilate=dilations,
+                    groups=groups,
                 )
             ).array,
         )
@@ -262,18 +268,27 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     dilations = node.get_attr("dilations")[0]  # Assuming same padding in all directions
     groups = node.get_attr("group", 1)
 
+    stride = (stride,stride) 
+    padding = (padding,padding)
+    dilations = (dilations,dilations)
+
     def fn():
         # time_st = datetime.datetime.now()
         # logging.log(logging.INFO, f"CONVOP got -->  {x[-1]} CONVOP")
 
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(
+
+            cupy.cudnn.convolution_forward(
+                x,
+                w,
+                b,
                 y,
-                (
-                    chainer.functions.convolution_2d(
-                        x, w, b, stride=stride, pad=padding, dilate=dilations, groups=groups
-                    )
-                ).array,
+                padding,
+                stride,
+                dilations,
+                groups,
+                auto_tune = False,
+                tensor_core = 'auto'
             )
 
         # time_end = datetime.datetime.now()
@@ -319,7 +334,8 @@ def relu_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(y, chainer.functions.relu(x).array)
+            #hack to get the copy off the default stream
+            cupy.add(cupy.cudnn.activation_forward(x, cupy.cuda.cudnn.CUDNN_ACTIVATION_RELU),0,out=y)
 
     return fn
 
@@ -390,17 +406,14 @@ def maxpool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            out = cupy.zeros_like(y)
-            chainer.backends.cuda.cudnn.pooling_forward(
+            cupy.cudnn.pooling_forward(
                 x,
-                out,
+                y,
                 (kernel_shape[0], kernel_shape[1]),
                 (stride, stride),
                 (padding, padding),
-                chainer.backends.cuda.cuda.cudnn.CUDNN_POOLING_MAX,
+                cupy.cuda.cudnn.CUDNN_POOLING_MAX,
             )
-
-            cupy.copyto(y, out)
 
     return fn
 
@@ -486,14 +499,24 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     if epsilon < 1e-05:
         epsilon = 1e-05
 
+    # modeled off of the chainer support
+
+
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(
-                y,
-                chainer.functions.fixed_batch_normalization(
-                    x, gamma, beta, mean, var, eps=epsilon
-                ).array,
-            )
+
+            #This is a hack to avoid the device to device copy stuck on the default stream
+            cupy.add(cupy.cudnn.batch_normalization_forward_inference(
+                x, gamma, beta, mean, var, epsilon, True,
+                cupy.cuda.cudnn.CUDNN_BATCHNORM_SPATIAL
+            ),0,out=y)
+
+            #cupy.copyto(
+            #    y,
+            #    chainer.functions.fixed_batch_normalization(
+            #        x, gamma, beta, mean, var, eps=epsilon
+            #    ).array,
+            #)
 
     return fn
 
@@ -559,7 +582,7 @@ def average_pool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None
     padding = node.get_attr("pads", [0])[0]
     stride = node.get_attr("strides", [1])[0]
 
-    def fn():  
+    def fn():
         with cupy.cuda.Device(node.device_id):
             out = chainer.functions.average_pooling_2d(
                 x, kernel_size, stride=stride, pad=padding
@@ -567,8 +590,6 @@ def average_pool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None
             cupy.copyto(y, out)
 
     return fn
-
-
 
 
 def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
@@ -611,7 +632,8 @@ def globalAveragePool_gpu(node: Node, alloc_map, config: Config) -> Callable[[],
             out = chainer.functions.average_pooling_2d(
                 x, (x.shape[2], x.shape[3])
             ).array
-            cupy.copyto(y, out)
+            #hack to force copy off of default stream
+            cupy.add(out, 0, out=y)
             # logging.log(logging.INFO, f"On GPU {node.device_id}")
 
     return fn
@@ -653,7 +675,8 @@ def flatten_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(y, cupy.reshape(x, (x.shape[0], -1)))
+            # hack to get copy off the default stream
+            cupy.add(cupy.reshape(x, (x.shape[0], -1)),0, out=y)
 
     return fn
 
@@ -720,15 +743,18 @@ def gemm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     def fn():
         with cupy.cuda.Device(node.device_id):
             if transX == 1:
-                xt = chainer.functions.transpose(x)
+                #xt = chainer.functions.transpose(x)
+                xt = cupy.transpose(x)
             else:
                 xt = x
             if transW == 1:
-                wt = w
+                #wt = chainer.functions.transpose(w)
+                wt = cupy.transpose(w)
             else:
-                wt = chainer.functions.transpose(w)
+                wt = w
 
-            cupy.copyto(y, chainer.functions.linear(alpha * xt, wt, b=(beta * b)).array)
+            z = cupy.dot(alpha * xt, wt)
+            cupy.add(z, beta * b, out = y)
 
     return fn
 
@@ -832,7 +858,7 @@ def clip_v11_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     min_io = node.get_input("min")
     max_io = node.get_input("max")
 
-    output_io =node.outputs["output"]
+    output_io = node.outputs["output"]
 
     inp = input_io.get_data(alloc_map)
     min_data = min_io.get_data(alloc_map)
@@ -845,10 +871,10 @@ def clip_v11_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     output = output_io.get_data(alloc_map)
 
     def fn():
-        np.copyto(output, chainer.functions.clip(inp, min_data[0],
-            max_data[0]).array)
+        np.copyto(output, chainer.functions.clip(inp, min_data[0], max_data[0]).array)
 
     return fn
+
 
 def clip_v6_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
@@ -856,36 +882,34 @@ def clip_v6_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     min_v = node.get_attr("min", -3.402823e38)
     max_v = node.get_attr("max", 3.402823e38)
 
-    output_io =node.outputs["output"]
+    output_io = node.outputs["output"]
 
     inp = input_io.get_data(alloc_map)
     output = output_io.get_data(alloc_map)
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(output, chainer.functions.clip(inp, min_v,
-                max_v).array)
+            cupy.clip(inp, a_min=min_v, a_max=max_v, out=output)
 
     return fn
 
 
 def clip_v6_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
-
     input_io = node.inputs["input"]
     min_v = node.get_attr("min", -3.402823e38)
     max_v = node.get_attr("max", 3.402823e38)
 
-    output_io =node.outputs["output"]
+    output_io = node.outputs["output"]
 
     inp = input_io.get_data(alloc_map)
     output = output_io.get_data(alloc_map)
-
 
     def fn():
         np.copyto(output, chainer.functions.clip(inp, min_v, max_v).array)
 
     return fn
+
 
 def clip_v11_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
@@ -893,39 +917,38 @@ def clip_v11_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     min_io = node.get_input("min")
     max_io = node.get_input("max")
 
-    output_io =node.outputs["output"]
+    output_io = node.outputs["output"]
 
     inp = input_io.get_data(alloc_map)
     min_data = min_io.get_data(alloc_map)
     if min_data is None:
-        min_data = cupy.array([float('-inf')])
+        min_data = cupy.array([float("-inf")])
 
     max_data = max_io.get_data(alloc_map)
     if max_data is None:
-        max_data = cupy.array([float('inf')])
+        max_data = cupy.array([float("inf")])
 
     output = output_io.get_data(alloc_map)
 
     def fn():
         with cupy.cuda.Device(node.device_id):
-            cupy.copyto(output, chainer.functions.clip(inp, min_data[0],
-                max_data[0]).array)
+            cupy.copyto(
+                output, chainer.functions.clip(inp, min_data[0], max_data[0]).array
+            )
 
     return fn
-
-
 
 
 def reduce_mean_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     data_io = node.inputs["data"]
-    reduced_io =node.outputs["reduced"]
+    reduced_io = node.outputs["reduced"]
 
     data = data_io.get_data(alloc_map)
     reduced = reduced_io.get_data(alloc_map)
 
     axes = node.get_attr("axes")
-    keep_dims = (node.get_attr("keepdims",1) == 1)
+    keep_dims = node.get_attr("keepdims", 1) == 1
 
     def fn():
         np.mean(data, axis=axes, out=reduced, keepdims=keep_dims)
@@ -933,25 +956,20 @@ def reduce_mean_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]
     return fn
 
 
-
 def reduce_mean_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     data_io = node.inputs["data"]
-    reduced_io =node.outputs["reduced"]
+    reduced_io = node.outputs["reduced"]
 
     data = data_io.get_data(alloc_map)
     reduced = reduced_io.get_data(alloc_map)
 
     axes = node.get_attr("axes")
-    keep_dims = (node.get_attr("keepdims",1) == 1)
+    keep_dims = node.get_attr("keepdims", 1) == 1
 
     def fn():
         with cupy.cuda.Device(node.device_id):
             cupy.mean(data, axis=axes, out=reduced, keepdims=keep_dims)
 
     return fn
-
-
-
-
 
