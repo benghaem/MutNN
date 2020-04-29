@@ -1,10 +1,19 @@
 import numpy as np
 import logging
-
 import imageio
+from torch.utils.data import Dataset
 
-random_images = np.random.random((128 * 12 * 4, 3, 224, 224)).astype(np.float32)
 
+class RandomDataset(Dataset):
+
+    def __init__(self, max_len):
+        self.max_len = max_len
+
+    def __getitem__(self, index):
+        return np.random.random((3, 224, 224)).astype(np.float32)
+
+    def __len__(self):
+        return self.max_len
 
 def gen_random_images(num):
     return np.random.random((num, 3, 224, 224))
@@ -35,6 +44,7 @@ def get_test(s, e):
 
 
 def get_random(s, e):
+    raise NotImplementedError
     print(f"load: {s}-{e}")
     batch_size = e - s
     s = s % random_images.shape[0]
