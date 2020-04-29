@@ -25,21 +25,22 @@ with open(outfile, "a+") as f:
     model_name = str(model_fn.__name__)
 
     num_gpus = torch.cuda.device_count()
-    ref_input = torch.tensor(vidl.get_random(0,batch_len*num_gpus))
 
     print(target, model_name)
 
     model = model_fn(pretrained=True)
     # write model out to onnx
-    torch.onnx.export(model, (ref_input), "bench_out.onnx",
-            keep_initializers_as_inputs=True, verbose=True, opset_version=10)
+    if (target != "pytorch"):
+        ref_input = torch.tensor(vidl.get_random(0,batch_len*num_gpus))
+        torch.onnx.export(model, (ref_input), "bench_out.onnx",
+                keep_initializers_as_inputs=True, verbose=True, opset_version=10)
 
-    so = ort.SessionOptions()
-    so.optimized_model_filepath = "bench_out.onnx.opt"
-    session = ort.InferenceSession("bench_out.onnx", so)
+        so = ort.SessionOptions()
+        so.optimized_model_filepath = "bench_out.onnx.opt"
+        session = ort.InferenceSession("bench_out.onnx", so)
 
-    del session
-    del so
+        del session
+        del so
 
     res = None
     scaled_batch_len = batch_len*num_gpus
@@ -53,6 +54,7 @@ with open(outfile, "a+") as f:
         model = torch.nn.DataParallel(model, device_ids=torch_devices)
 
         st = datetime.datetime.now()
+        time.sleep(20)
         with torch.no_grad():
             for batch_id in range(0,total_len,scaled_batch_len):
                 batch = torch.tensor(vidl.get_random(batch_id,batch_id+scaled_batch_len)).to('cuda')
