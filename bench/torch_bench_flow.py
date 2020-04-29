@@ -1,5 +1,6 @@
 import torch
 import torch.onnx
+from torch.utils.data import DataLoader
 import torchvision.models as tvmodels
 import onnxruntime as ort
 import onnx2parla as o2p
@@ -8,6 +9,10 @@ import sys
 import datetime
 import time
 import gc
+import numpy as np
+from numpy.random import default_rng
+
+rng = default_rng()
 
 models = [tvmodels.mobilenet_v2, tvmodels.resnet50, tvmodels.vgg16]
 targets = ["pytorch","o2p","ort","o2p_model"]
@@ -29,8 +34,9 @@ with open(outfile, "a+") as f:
     print(target, model_name)
 
     model = model_fn(pretrained=True)
-    # write model out to onnx
+    # pytorch --> onnx model conversion
     if (target != "pytorch"):
+        # write model out to onnx
         ref_input = torch.tensor(vidl.get_random(0,batch_len*num_gpus))
         torch.onnx.export(model, (ref_input), "bench_out.onnx",
                 keep_initializers_as_inputs=True, verbose=True, opset_version=10)
@@ -43,22 +49,44 @@ with open(outfile, "a+") as f:
         del so
 
     res = None
-    scaled_batch_len = batch_len*num_gpus
+    if (num_gpus > 0):
+        scaled_batch_len = batch_len*num_gpus
+    else:
+        scaled_batch_len = batch_len
+    latency = []
 
     # PYTORCH BENCH
     if target == "pytorch":
         # cudaify model
-        model.to('cuda')
-        torch_devices = [torch.device(f"cuda:{ii}") for ii in range(num_gpus)]
+        if (num_gpus > 0):
+            model.to('cuda')
 
-        model = torch.nn.DataParallel(model, device_ids=torch_devices)
+        #model = torch.nn.DataParallel(model, device_ids=torch_devices)
+        #torch_devices = [torch.device(f"cuda:{ii}") for ii in range(num_gpus)]
+
+        if (num_gpus > 0):
+            RandomLoader = DataLoader(vidl.RandomDataset(6144),
+                                      batch_size=scaled_batch_len,
+                                      num_workers = 8,
+                                      pin_memory=True)
+        else:
+            RandomLoader = DataLoader(vidl.RandomDataset(6144),
+                                      batch_size=scaled_batch_len,
+                                      num_workers = 8)
+             
 
         st = datetime.datetime.now()
         time.sleep(20)
         with torch.no_grad():
-            for batch_id in range(0,total_len,scaled_batch_len):
-                batch = torch.tensor(vidl.get_random(batch_id,batch_id+scaled_batch_len)).to('cuda')
-                out = model(batch).cpu().numpy()
+            for batch in RandomLoader:
+                time.sleep(rng.exponential(1) / 100)
+                lt_st = datetime.datetime.now()
+                if (num_gpus > 0):
+                    out = model(batch.cuda()).cpu().numpy()
+                else:
+                    out = model(batch).numpy()
+                lt_end = datetime.datetime.now()
+                latency.append((lt_st,lt_end))
         end = datetime.datetime.now()
 
         res = end - st
@@ -101,5 +129,12 @@ with open(outfile, "a+") as f:
 
         res = end-st
 
+    latency_comp = [(end - start).total_seconds() for start, end in latency]
+    
+    mean_latency = np.mean(latency_comp)
+    latency_99p = np.percentile(latency_comp, 99.0)
 
-    f.write("{},{},{},{},{}\n".format(model_name,target,batch_len,total_len,res.total_seconds()))
+
+    f.write("{},{},{},{},{},{},{}\n".format(model_name,target,batch_len,total_len,res.total_seconds(),mean_latency,
+        latency_99p))
+

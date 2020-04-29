@@ -4,6 +4,8 @@ class Node:
         # Identification
         self.node_id = node_id
         self.instance_id = instance_id
+        self.streams = []
+        self.batch_id = 0
 
         # Operational
         self.operator = operator
@@ -13,10 +15,22 @@ class Node:
 
         # Parla
         self.fn = None
+        self.wrapper_fn = None
         self.device_type = None
         self.device_id = None
         self.last_task_obj = None
         self.last_launch_batch_id = -1
+
+    def build_wrapper(self):
+        def fn():
+            num_streams = len(self.streams)
+            if num_streams > 0:
+                with self.streams[self.batch_id % num_streams]:
+                    self.fn()
+                    self.batch_id += 1
+            else:
+                self.fn()
+        self.wrapper_fn = fn
 
     def get_operator(self):
         return self.operator
