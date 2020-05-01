@@ -31,7 +31,7 @@ def frontend_proc(cmd_q, stats_q, **kwargs):
 
             cmd_q.put(("add", (graph, cfg)))
 
-            print(str(cmd_q.qsize()) + " graphs in queue")
+            print(str(cmd_q.qsize()) + " cmds in queue")
 
         elif (inp[0] in ["stats"]):
             if (not stats_q.empty()):
@@ -41,18 +41,68 @@ def frontend_proc(cmd_q, stats_q, **kwargs):
             print(stats_dict)
 
 
+def pre_alloc_build():
+
+    pre_mp_passes = [backend.shape_inference,
+                     backend.place,
+                     backend.copy_insertion]
+
+    # do all pre_mp_passes 
+
+    graph_req_size = backend.get_required_size()
+
+    return graph, info
+
+
+def alloc_rebuild(all_graphs):
+
+    alloc_priority = determine_alloc_priority(graph_req_sizes)
+
+    for graph in all_graphs:
+        backend.alloc_from_pool()??
+        backend.build_graph()
+
+
+
+
 def backend_proc(cmd_q, stats_q, **kwargs):
+
+    #control
     run_proc = True
-    num_graphs = 0
+
+    #stats
+    stats = {"num_graphs":0}
+
+    #state
+    # graph_id : [(node, [deps ....]) ....]
+    dep_graphs = {}
+    # graph_id : [dependent on graph_ids]
+    dep_info = {}
+
+    graphs = []
+
+    #MAKE BIG ALLOCATION
+
+
     while (run_proc):
-        (cmd, args) = cmd_q.get()
-        if (cmd == "add"):
-            graph, cfg = args
-            num_graphs += 1
-            print("BACKEND:" + str(graph.nodes[4]["node"]))
-            stats_q.put({"graphs": num_graphs})
-        if (cmd == "quit"):
-            run_proc = False
+        if (not cmq_q.empty()):
+            (cmd, args) = cmd_q.get()
+            if (cmd == "add"):
+                graph, cfg = args
+                stats["num_graphs"] += 1
+                stats_q.put(stats)
+
+                # run the passes on the new model
+                multi_model.build(graph, cfg)
+
+                multi_model.update_memory
+
+
+            if (cmd == "quit"):
+                run_proc = False
+
+        else:
+
 
 
 if __name__ == "__main__":
