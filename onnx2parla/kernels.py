@@ -22,7 +22,7 @@ from typing import Callable, Dict
 
 def load_cpu(node: Node, alloc_map, config):
     z_io = node.outputs["Z"]
-    z = z_io.get_data(alloc_map)
+    z = z_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     width = z_io.shape[0]
     batch_size = config.computed_batch_size
@@ -42,7 +42,7 @@ def load_cpu(node: Node, alloc_map, config):
 
 def store_cpu(node, alloc_map, config):
     x_io = node.inputs["X"]
-    x = x_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         store_id = node.get_attr("store_id")
@@ -61,11 +61,14 @@ def copy(node: Node, alloc_map, config: Config):
     x_io = node.inputs["X"]
     z_io = node.outputs["Z"]
 
-    x = x_io.get_data(alloc_map)
-    z = z_io.get_data(alloc_map)
+    source_device = node.get_attr("source_device")
+    target_device = node.get_attr("target_device")
 
-    source_device_id = node.get_attr("source_device")[1]
-    target_device_id = node.get_attr("target_device")[1]
+    x = x_io.get_data(alloc_map,config.model_id,source_device))
+    z = z_io.get_data(alloc_map,config.model_id,target_device))
+
+    source_device_id = source_device[1]
+    target_device_id = target_device[1]
 
     tz = type(z)
     tx = type(x)
@@ -162,9 +165,9 @@ def add_cpu(
     y_io = node.inputs["B"]
     z_io = node.outputs["C"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
-    z = z_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
+    z = z_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         np.copyto(z, x + y)
@@ -192,9 +195,9 @@ def add_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     y_io = node.inputs["B"]
     z_io = node.outputs["C"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
-    z = z_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
+    z = z_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         with cupy.cuda.Device(node.device_id):
@@ -214,10 +217,10 @@ def conv_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     b_io = node.get_input("B")
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    w = w_io.get_data(alloc_map)
-    b = b_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    w = w_io.get_data(alloc_map,config.model_id,node.get_device()))
+    b = b_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     # Assuming same stride in all directions
     stride = node.get_attr("strides", [1])[0]
@@ -258,10 +261,10 @@ def conv_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     b_io = node.get_input("B")
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    w = w_io.get_data(alloc_map)
-    b = b_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    w = w_io.get_data(alloc_map,config.model_id,node.get_device()))
+    b = b_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     stride = node.get_attr("strides")[0]  # Assuming same stride in all directions
     padding = node.get_attr("pads")[0]  # Assuming same padding in all directions
@@ -309,8 +312,8 @@ def relu_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         np.copyto(y, chainer.functions.relu(x).array)
@@ -329,8 +332,8 @@ def relu_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         with cupy.cuda.Device(node.device_id):
@@ -351,8 +354,8 @@ def maxpool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     # Assume same stride in all directions
     stride = (node.get_attr("strides", [1]))[0]
@@ -397,8 +400,8 @@ def maxpool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     stride = (node.get_attr("strides"))[0]  # Assuming same stride in all directions
     padding = (node.get_attr("pads"))[0]  # Assuming same padding in all directions
@@ -440,12 +443,12 @@ def batchnorm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     var_io = node.inputs["var"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    gamma = gamma_io.get_data(alloc_map)
-    beta = beta_io.get_data(alloc_map)
-    mean = mean_io.get_data(alloc_map)
-    var = var_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    gamma = gamma_io.get_data(alloc_map,config.model_id,node.get_device()))
+    beta = beta_io.get_data(alloc_map,config.model_id,node.get_device()))
+    mean = mean_io.get_data(alloc_map,config.model_id,node.get_device()))
+    var = var_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     epsilon = node.get_attr("epsilon", 1e-05)
     momentum = node.get_attr("momentum", 0.9)
@@ -486,12 +489,12 @@ def batchnorm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     var_io = node.inputs["var"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    gamma = gamma_io.get_data(alloc_map)
-    beta = beta_io.get_data(alloc_map)
-    mean = mean_io.get_data(alloc_map)
-    var = var_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    gamma = gamma_io.get_data(alloc_map,config.model_id,node.get_device()))
+    beta = beta_io.get_data(alloc_map,config.model_id,node.get_device()))
+    mean = mean_io.get_data(alloc_map,config.model_id,node.get_device()))
+    var = var_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     epsilon = node.get_attr("epsilon")
     momentum = node.get_attr("momentum")
@@ -526,8 +529,8 @@ def pad_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x_io = node.inputs["data"]
     y_io = node.outputs["output"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     logging.log(logging.WARN, "Pad is currently a NOP")
 
@@ -548,8 +551,8 @@ def average_pool_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     kernel_size = node.get_attr("kernel_shape")
     padding = node.get_attr("pads", [0])[0]
@@ -575,8 +578,8 @@ def average_pool_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     kernel_size = node.get_attr("kernel_shape")
     padding = node.get_attr("pads", [0])[0]
@@ -603,8 +606,8 @@ def globalAveragePool_cpu(node: Node, alloc_map, config: Config) -> Callable[[],
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         out = chainer.functions.average_pooling_2d(x, (x.shape[2], x.shape[3])).array
@@ -624,8 +627,8 @@ def globalAveragePool_gpu(node: Node, alloc_map, config: Config) -> Callable[[],
     x_io = node.inputs["X"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         with cupy.cuda.Device(node.device_id):
@@ -650,8 +653,8 @@ def flatten_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x_io = node.inputs["input"]
     y_io = node.outputs["output"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         np.copyto(y, x.reshape(x.shape[0], -1))
@@ -670,8 +673,8 @@ def flatten_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     x_io = node.inputs["input"]
     y_io = node.outputs["output"]
 
-    x = x_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         with cupy.cuda.Device(node.device_id):
@@ -693,10 +696,10 @@ def gemm_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     b_io = node.inputs["C"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    w = w_io.get_data(alloc_map)
-    b = b_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    w = w_io.get_data(alloc_map,config.model_id,node.get_device()))
+    b = b_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     alpha = node.get_attr("alpha", 1.0)
     beta = node.get_attr("beta", 1.0)
@@ -730,10 +733,10 @@ def gemm_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     b_io = node.inputs["C"]
     y_io = node.outputs["Y"]
 
-    x = x_io.get_data(alloc_map)
-    w = w_io.get_data(alloc_map)
-    b = b_io.get_data(alloc_map)
-    y = y_io.get_data(alloc_map)
+    x = x_io.get_data(alloc_map,config.model_id,node.get_device()))
+    w = w_io.get_data(alloc_map,config.model_id,node.get_device()))
+    b = b_io.get_data(alloc_map,config.model_id,node.get_device()))
+    y = y_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     alpha = node.get_attr("alpha", 1.0)
     beta = node.get_attr("beta", 1.0)
@@ -765,9 +768,9 @@ def dropout_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     output_io = node.outputs["output"]
     opt_mask_io = node.get_output("mask")
 
-    data = data_io.get_data(alloc_map)
-    output = output_io.get_data(alloc_map)
-    opt_mask = opt_mask_io.get_data(alloc_map)
+    data = data_io.get_data(alloc_map,config.model_id,node.get_device()))
+    output = output_io.get_data(alloc_map,config.model_id,node.get_device()))
+    opt_mask = opt_mask_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     ratio = node.get_attr("ratio", 0.5)
 
@@ -788,9 +791,9 @@ def dropout_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     output_io = node.outputs["output"]
     opt_mask_io = node.get_output("mask")
 
-    data = data_io.get_data(alloc_map)
-    output = output_io.get_data(alloc_map)
-    opt_mask = opt_mask_io.get_data(alloc_map)
+    data = data_io.get_data(alloc_map,config.model_id,node.get_device()))
+    output = output_io.get_data(alloc_map,config.model_id,node.get_device()))
+    opt_mask = opt_mask_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     ratio = node.get_attr("ratio", 0.5)
 
@@ -812,9 +815,9 @@ def reshape_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     shape_io = node.inputs["shape"]
     reshaped_io = node.outputs["reshaped"]
 
-    data = data_io.get_data(alloc_map)
-    shape = shape_io.get_data(alloc_map)
-    reshaped = reshaped_io.get_data(alloc_map)
+    data = data_io.get_data(alloc_map,config.model_id,node.get_device()))
+    shape = shape_io.get_data(alloc_map,config.model_id,node.get_device()))
+    reshaped = reshaped_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         with cupy.cuda.Device(node.device_id):
@@ -839,9 +842,9 @@ def reshape_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
     shape_io = node.inputs["shape"]
     reshaped_io = node.outputs["reshaped"]
 
-    data = data_io.get_data(alloc_map)
-    shape = shape_io.get_data(alloc_map)
-    reshaped = reshaped_io.get_data(alloc_map)
+    data = data_io.get_data(alloc_map,config.model_id,node.get_device()))
+    shape = shape_io.get_data(alloc_map,config.model_id,node.get_device()))
+    reshaped = reshaped_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         shape_tuple = list(shape.astype(np.int64))
@@ -860,15 +863,15 @@ def clip_v11_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     output_io = node.outputs["output"]
 
-    inp = input_io.get_data(alloc_map)
-    min_data = min_io.get_data(alloc_map)
+    inp = input_io.get_data(alloc_map,config.model_id,node.get_device()))
+    min_data = min_io.get_data(alloc_map,config.model_id,node.get_device()))
     if min_data is None:
         min_data = [-np.inf]
-    max_data = max_io.get_data(alloc_map)
+    max_data = max_io.get_data(alloc_map,config.model_id,node.get_device()))
     if max_data is None:
         max_data = [np.inf]
 
-    output = output_io.get_data(alloc_map)
+    output = output_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         np.copyto(output, chainer.functions.clip(inp, min_data[0], max_data[0]).array)
@@ -884,8 +887,8 @@ def clip_v6_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     output_io = node.outputs["output"]
 
-    inp = input_io.get_data(alloc_map)
-    output = output_io.get_data(alloc_map)
+    inp = input_io.get_data(alloc_map,config.model_id,node.get_device()))
+    output = output_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         with cupy.cuda.Device(node.device_id):
@@ -902,8 +905,8 @@ def clip_v6_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     output_io = node.outputs["output"]
 
-    inp = input_io.get_data(alloc_map)
-    output = output_io.get_data(alloc_map)
+    inp = input_io.get_data(alloc_map,config.model_id,node.get_device()))
+    output = output_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         np.copyto(output, chainer.functions.clip(inp, min_v, max_v).array)
@@ -919,16 +922,16 @@ def clip_v11_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]:
 
     output_io = node.outputs["output"]
 
-    inp = input_io.get_data(alloc_map)
-    min_data = min_io.get_data(alloc_map)
+    inp = input_io.get_data(alloc_map,config.model_id,node.get_device()))
+    min_data = min_io.get_data(alloc_map,config.model_id,node.get_device()))
     if min_data is None:
         min_data = cupy.array([float("-inf")])
 
-    max_data = max_io.get_data(alloc_map)
+    max_data = max_io.get_data(alloc_map,config.model_id,node.get_device()))
     if max_data is None:
         max_data = cupy.array([float("inf")])
 
-    output = output_io.get_data(alloc_map)
+    output = output_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     def fn():
         with cupy.cuda.Device(node.device_id):
@@ -944,8 +947,8 @@ def reduce_mean_cpu(node: Node, alloc_map, config: Config) -> Callable[[], None]
     data_io = node.inputs["data"]
     reduced_io = node.outputs["reduced"]
 
-    data = data_io.get_data(alloc_map)
-    reduced = reduced_io.get_data(alloc_map)
+    data = data_io.get_data(alloc_map,config.model_id,node.get_device()))
+    reduced = reduced_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     axes = node.get_attr("axes")
     keep_dims = node.get_attr("keepdims", 1) == 1
@@ -961,8 +964,8 @@ def reduce_mean_gpu(node: Node, alloc_map, config: Config) -> Callable[[], None]
     data_io = node.inputs["data"]
     reduced_io = node.outputs["reduced"]
 
-    data = data_io.get_data(alloc_map)
-    reduced = reduced_io.get_data(alloc_map)
+    data = data_io.get_data(alloc_map,config.model_id,node.get_device()))
+    reduced = reduced_io.get_data(alloc_map,config.model_id,node.get_device()))
 
     axes = node.get_attr("axes")
     keep_dims = node.get_attr("keepdims", 1) == 1

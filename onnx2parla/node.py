@@ -126,7 +126,7 @@ class InOut:
         self.data = data
         self.shape = shape
 
-    def get_data(self, alloc_map, model_id, device, name):
+    def get_data(self, alloc_map, model_id, device):
 
         """
         Get the actual data associated with the IO
@@ -136,14 +136,14 @@ class InOut:
         """
         device_type, device_id = device
         if (device_type == "cpu"):
-            return alloc_map.get_cpu_array(model_id, name)
+            return alloc_map.get_cpu_array(model_id, self.name)
         else:
             if self.kind == "pointer":
                 return alloc_map.get_gpu_workspace_view(
-                        model_id, device_id, name)
+                        model_id, device_id, self.name)
             if self.kind == "static":
                 return alloc_map.get_gpu_static_array(
-                        model_id, device_id, name)
+                        model_id, device_id, self.name)
         return None
 
     def __str__(self):
