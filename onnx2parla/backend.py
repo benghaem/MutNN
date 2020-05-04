@@ -18,6 +18,7 @@ from onnx2parla.config import Config
 import onnx2parla.operators as ops
 from onnx2parla.onnx_shape_inference import infer_shape
 from collections import deque
+from memory import size_in_bytes(shape, dtype)
 
 
 PNO_GRAPH_HEAD_ID = -1
@@ -44,6 +45,227 @@ def build_copy_node(in_io, out_io, node_id):
 
     return new_node
 
+
+def build_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
+
+    roots = graph.successors(PNO_GRAPH_HEAD_ID)
+    q = deque([roots])
+
+    #(from,to,group)
+    copy_to_insert = []
+
+    while len(q) > 0:
+        gnode = q.popleft()
+        node = graph.nodes[gnode]['node']
+
+        gparents = graph.predecessors(gnode)
+        gchildren = graph.successors(gnode)
+
+        # generate the correct group for node
+        # based on parent groups
+        parents_not_ready = False
+        parent_group = set()
+        even_parents = []
+        odd_parents = []
+        for gparent in gparents:
+            parent = graph.nodes[gparent]['node']
+            if gparent == PNO_GRAPH_HEAD_ID:
+                parent_group.add(-1)
+                odd_parents.append(PNO_GRAPH_HEAD_ID)
+            else:
+                parent_group.add(parent.group)
+                if (parent.group == None):
+                    parents_not_ready = True
+                    break
+                if (parent.group % 2 == 0):
+                    even_parents.append(gparent)
+                else:
+                    odd_parents.append(gparent)
+
+        if parents_not_ready:
+            q.append(gnode)
+            continue
+
+        # assign new group
+        node.group = max(parent_group) + 1
+
+        # check if we need to do copy insertion
+        num_even_parents = len(even_parents)
+        num_odd_parents = len(odd_parents)
+        if num_even_parents > 0 and num_odd_parents > 0:
+            # pick the one with fewer parents of that type
+            target_parents = None
+            if num_even_parents < num_odd_parents:
+                target_parents = even_parents
+            else:
+                target_parents = odd_parents
+
+            for gparent in target_parents:
+                parent = graph.nodes[parent]['node']
+                copy_to_insert.append(gparent, gnode, parent.group + 1)
+
+        for gchild in gchildren:
+            if gchild not in q:
+                q.append(gchild)
+
+    # do the copy insertion
+
+    node_id = graph.number_of_nodes()
+
+    for copy_info in copy_to_insert:
+        gparent, gnode, copy_group = copy_info
+        node = graph.nodes[gnode]['node']
+
+        for output_io in node.outputs.values():
+            source_buffer = output_io.name
+            target_buffer = source_buffer + "_bcpy"
+            copy_in_io = InOut(source_buffer, "pointer",
+                               None, output_io.shape)
+            copy_out_io = InOut(target_buffer, "pointer",
+                                None, output_io.shape)
+
+            new_copy_node = build_copy_node(copy_in_io,
+                                            copy_out_io,
+                                            node_id)
+
+            new_copy_node.device_type = node.device_type
+            new_copy_node.device_id = node.device_id
+            new_copy_node.set_attr("target_device", node.get_device())
+            new_copy_node.set_attr("source_device", node.get_device())
+            new_copy_node.group = copy_group
+
+            graph.add_node(node_id)
+            graph.nodes[node_id]["node"] = new_copy_node
+            graph.add_edge(gparent, node_id, buffer=source_buffer)
+
+            node.replace_io_for_input_buffer(source_buffer,
+                                             copy_out_io)
+
+            graph.add_edge(node_id, gnode, buffer=target_buffer)
+            graph.remove_edge(gparent, gnode)
+
+            node_id += 1
+
+    return
+
+def register_statics(graph: nx.DiGraph, alloc_map, config: Config) -> None:
+
+    for gnode in graphs.nodes:
+        node = graph.nodes[gnode]["node"]
+
+        for io in node.inputs.values():
+            if io.kind == "static":
+                if node.device_type == "gpu":
+                    alloc_map.register_gpu_static(config.model_id,
+                                                  node.device_id,
+                                                  io.name,
+                                                  io.shape,
+                                                  io.dtype)
+                else:
+                    alloc_map.register_cpu(config.model_id,
+                                          io.name,
+                                          io.shape,
+                                          io.dtype)
+
+
+def populate_statics(graph: nx.DiGraph, alloc_map, config: Config) -> None:
+    for gnode in graphs.nodes:
+        node = graph.nodes[gnode]["node"]
+
+        for io in node.inputs.values():
+            if io.kind == "static":
+                if node.device_type == "gpu":
+                    device_id = node.device_id
+                    target = alloc_map.get_gpu_static_array(config.model_id,
+                                                            device_id,
+                                                            io.name)
+
+                    with cupy.cuda.Device(device_id):
+                        cupy.copyto(target,io.data)
+                else:
+                    target = alloc_map.get_cpu_array(config.model_id,
+                                                     io.name)
+                    np.copyto(target,io.data)
+                io.data = None
+
+def register_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
+
+    # collect the groups
+    group_info = {}
+    for gnode in graph.nodes()
+        node = graph.nodes[gnode]['node']
+        device = node.get_device()
+
+        # copy operators have an annoying property where they may actually
+        # output to another device. We catch this here and reassign them
+        # so that we correct output space requirement info
+        if node.operators == "copy":
+            device = node.get_attr("target_device")
+
+        if device not in group_info:
+            group_info[device] = {}
+        if node.group not in group_info[device]:
+            group_info[device][node.group] = []
+        group_info[device][node.group].append(gnode)
+
+    # find the requirement for the even and odd groups
+    even_group_req = {}
+    odd_group_req = {}
+
+    # copy operators have the strange property in that they write off the
+    # device to the next device, however all the successors must be on the same
+    # device. We need to detect copies here and add them to different device
+    # group sums
+
+    for device in group_info.keys():
+        if device not in even_group_req:
+            even_group_req[device] = {}
+        if device not in odd_group_req:
+            odd_group_req[device] = {}
+
+        for group, gnodes in groups_info[device].items():
+            group_sum = 0
+            for gnode in gnodes:
+                node = graph.nodes[gnode]['node']
+                for output_io in node.outputs.values():
+                    group_sum += size_in_bytes(output_io.shape, output_io.dtype)
+            if (group % 2) == 0:
+                even_group_req[device] = max(even_group_req[device], group_sum)
+            else:
+                odd_group_req[device] = max(odd_group_req[device], group_sum)
+
+    # allocate a workspace for even and odd gpu groups
+    for device in group_info.keys():
+        device_type, device_id = device
+
+        if (device_type == "gpu"):
+            alloc_map.register_gpu_workspace(
+                    config.model_id,device_id,"A",even_group_req[device])
+            alloc_map.register_gpu_workspace(config.model_id,device_id,"B",odd_group_req[device])
+
+    #device, workspace, alloc_name, shape, dtype
+    for device in group_info.keys():
+        device_type, device_id = device
+        for group, gnodes in groups_info[device].items():
+            ios_in_group = []
+            for gnode in gnodes:
+                node = graph.nodes[gnode]['node']
+                for output_io in node.outputs.values():
+                    info_list.append(output_io)
+
+            if (device_type == "gpu"):
+                ws_name = ""
+                if (group % 2) == 0:
+                    ws_name = "A"
+                else:
+                    ws_name = "B"
+
+                alloc_map.register_gpu_ws_group(config.model_id,
+                        device_id,ws_name,ios_in_group)
+            else:
+                alloc_map.register_cpu_group(config.model_id,ios_in_group)
+
+    return
 
 def shape_inference(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 

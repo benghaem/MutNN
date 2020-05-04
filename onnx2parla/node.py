@@ -13,6 +13,9 @@ class Node:
         self.outputs = outputs
         self.attrs = attrs
 
+        # Memory Info
+        self.group = None
+
         # Parla
         self.fn = None
         self.wrapper_fn = None
@@ -123,7 +126,7 @@ class InOut:
         self.data = data
         self.shape = shape
 
-    def get_data(self, alloc_map):
+    def get_data(self, alloc_map, model_id, device, name):
 
         """
         Get the actual data associated with the IO
@@ -131,13 +134,16 @@ class InOut:
         Static data is accessed directly while pointer and
         dynamic data is looked up in the alloc map
         """
-
-        if self.kind == "pointer":
-            return alloc_map[self.name]
-        if self.kind == "dynamic":
-            return alloc_map[self.name]
-        if self.kind == "static":
-            return self.data
+        device_type, device_id = device
+        if (device_type == "cpu"):
+            return alloc_map.get_cpu_array(model_id, name)
+        else:
+            if self.kind == "pointer":
+                return alloc_map.get_gpu_workspace_view(
+                        model_id, device_id, name)
+            if self.kind == "static":
+                return alloc_map.get_gpu_static_array(
+                        model_id, device_id, name)
         return None
 
     def __str__(self):
