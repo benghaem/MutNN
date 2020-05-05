@@ -15,7 +15,7 @@ from numpy.random import default_rng
 rng = default_rng()
 
 models = [tvmodels.mobilenet_v2, tvmodels.resnet50, tvmodels.vgg16]
-targets = ["pytorch","o2p","ort","o2p_model"]
+targets = ["pytorch","o2p","ort","o2p_model","generate"]
 
 target_runtime = int(sys.argv[1])
 model_idx = int(sys.argv[2])
@@ -47,6 +47,9 @@ with open(outfile, "a+") as f:
 
         del session
         del so
+
+    if (target == "generate"):
+        sys.exit()
 
     res = None
     if (num_gpus > 0):

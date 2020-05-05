@@ -1,3 +1,5 @@
+import numpy as np
+
 class Node:
     def __init__(self, node_id, operator, inputs, outputs, attrs, instance_id):
 
@@ -87,6 +89,7 @@ class Node:
 
     def pretty_print(self):
         print(self)
+        print("group: ", self.group)
         print("inputs:")
         for i in self.inputs.items():
             print("\t", i[0], ": ", i[1])
@@ -125,6 +128,10 @@ class InOut:
         self.kind = kind
         self.data = data
         self.shape = shape
+        if data:
+            self.dtype = data.dtype
+        else:
+            self.dtype = np.float32
 
     def get_data(self, alloc_map, model_id, device):
 

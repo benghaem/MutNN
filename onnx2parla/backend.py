@@ -18,7 +18,7 @@ from onnx2parla.config import Config
 import onnx2parla.operators as ops
 from onnx2parla.onnx_shape_inference import infer_shape
 from collections import deque
-from memory import size_in_bytes(shape, dtype)
+from onnx2parla.memory import size_in_bytes
 
 
 PNO_GRAPH_HEAD_ID = -1
@@ -37,6 +37,12 @@ def get_valid_cuda_devices():
     return valid_ids
 
 
+def debug_print_graph(graph):
+    for node_id in graph.nodes:
+        node = graph.nodes[node_id]["node"]
+        node.pretty_print()
+
+
 def build_copy_node(in_io, out_io, node_id):
     inputs = {"X": in_io}
     outputs = {"Z": out_io}
@@ -49,14 +55,14 @@ def build_copy_node(in_io, out_io, node_id):
 def build_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
     roots = graph.successors(PNO_GRAPH_HEAD_ID)
-    q = deque([roots])
+    q = deque(roots)
 
-    #(from,to,group)
+    # (from,to,group)
     copy_to_insert = []
 
     while len(q) > 0:
         gnode = q.popleft()
-        node = graph.nodes[gnode]['node']
+        node = graph.nodes[gnode]["node"]
 
         gparents = graph.predecessors(gnode)
         gchildren = graph.successors(gnode)
@@ -68,16 +74,16 @@ def build_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
         even_parents = []
         odd_parents = []
         for gparent in gparents:
-            parent = graph.nodes[gparent]['node']
+            parent = graph.nodes[gparent]["node"]
             if gparent == PNO_GRAPH_HEAD_ID:
                 parent_group.add(-1)
                 odd_parents.append(PNO_GRAPH_HEAD_ID)
             else:
                 parent_group.add(parent.group)
-                if (parent.group == None):
+                if parent.group == None:
                     parents_not_ready = True
                     break
-                if (parent.group % 2 == 0):
+                if parent.group % 2 == 0:
                     even_parents.append(gparent)
                 else:
                     odd_parents.append(gparent)
@@ -95,14 +101,15 @@ def build_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
         if num_even_parents > 0 and num_odd_parents > 0:
             # pick the one with fewer parents of that type
             target_parents = None
+            # TODO: Equal case can be special
             if num_even_parents < num_odd_parents:
                 target_parents = even_parents
             else:
                 target_parents = odd_parents
 
             for gparent in target_parents:
-                parent = graph.nodes[parent]['node']
-                copy_to_insert.append(gparent, gnode, parent.group + 1)
+                parent = graph.nodes[gparent]["node"]
+                copy_to_insert.append((gparent, gnode, parent.group + 1))
 
         for gchild in gchildren:
             if gchild not in q:
@@ -114,19 +121,15 @@ def build_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
     for copy_info in copy_to_insert:
         gparent, gnode, copy_group = copy_info
-        node = graph.nodes[gnode]['node']
+        node = graph.nodes[gparent]["node"]
 
         for output_io in node.outputs.values():
             source_buffer = output_io.name
-            target_buffer = source_buffer + "_bcpy"
-            copy_in_io = InOut(source_buffer, "pointer",
-                               None, output_io.shape)
-            copy_out_io = InOut(target_buffer, "pointer",
-                                None, output_io.shape)
+            target_buffer = source_buffer + "_groupcpy"
+            copy_in_io = InOut(source_buffer, "pointer", None, output_io.shape)
+            copy_out_io = InOut(target_buffer, "pointer", None, output_io.shape)
 
-            new_copy_node = build_copy_node(copy_in_io,
-                                            copy_out_io,
-                                            node_id)
+            new_copy_node = build_copy_node(copy_in_io, copy_out_io, node_id)
 
             new_copy_node.device_type = node.device_type
             new_copy_node.device_id = node.device_id
@@ -138,8 +141,8 @@ def build_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
             graph.nodes[node_id]["node"] = new_copy_node
             graph.add_edge(gparent, node_id, buffer=source_buffer)
 
-            node.replace_io_for_input_buffer(source_buffer,
-                                             copy_out_io)
+            child = graph.nodes[gnode]["node"]
+            child.replace_io_for_input_buffer(source_buffer, copy_out_io)
 
             graph.add_edge(node_id, gnode, buffer=target_buffer)
             graph.remove_edge(gparent, gnode)
@@ -148,58 +151,58 @@ def build_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
     return
 
+
 def register_statics(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
-    for gnode in graphs.nodes:
+    for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
 
         for io in node.inputs.values():
             if io.kind == "static":
                 if node.device_type == "gpu":
-                    alloc_map.register_gpu_static(config.model_id,
-                                                  node.device_id,
-                                                  io.name,
-                                                  io.shape,
-                                                  io.dtype)
+                    alloc_map.register_gpu_static(
+                        config.model_id, node.device_id, io.name, io.shape, io.dtype
+                    )
                 else:
-                    alloc_map.register_cpu(config.model_id,
-                                          io.name,
-                                          io.shape,
-                                          io.dtype)
+                    alloc_map.register_cpu(config.model_id, io.name, io.shape, io.dtype)
 
 
 def populate_statics(graph: nx.DiGraph, alloc_map, config: Config) -> None:
-    for gnode in graphs.nodes:
+    for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
 
         for io in node.inputs.values():
             if io.kind == "static":
                 if node.device_type == "gpu":
                     device_id = node.device_id
-                    target = alloc_map.get_gpu_static_array(config.model_id,
-                                                            device_id,
-                                                            io.name)
+                    target = alloc_map.get_gpu_static_array(
+                        config.model_id, device_id, io.name
+                    )
 
                     with cupy.cuda.Device(device_id):
-                        cupy.copyto(target,io.data)
+                        #need to cast to cupy array here
+                        cupy.copyto(target, cupy.asarray(io.data))
                 else:
-                    target = alloc_map.get_cpu_array(config.model_id,
-                                                     io.name)
-                    np.copyto(target,io.data)
-                io.data = None
+                    target = alloc_map.get_cpu_array(config.model_id, io.name)
+                    np.copyto(target, io.data)
+
 
 def register_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
     # collect the groups
     group_info = {}
-    for gnode in graph.nodes()
-        node = graph.nodes[gnode]['node']
+    for gnode in graph.nodes:
+        node = graph.nodes[gnode]["node"]
         device = node.get_device()
+
+        # don't register the graph head
+        if gnode == PNO_GRAPH_HEAD_ID:
+            continue
 
         # copy operators have an annoying property where they may actually
         # output to another device. We catch this here and reassign them
         # so that we correct output space requirement info
-        if node.operators == "copy":
+        if node.operator == "copy":
             device = node.get_attr("target_device")
 
         if device not in group_info:
@@ -212,21 +215,16 @@ def register_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     even_group_req = {}
     odd_group_req = {}
 
-    # copy operators have the strange property in that they write off the
-    # device to the next device, however all the successors must be on the same
-    # device. We need to detect copies here and add them to different device
-    # group sums
-
     for device in group_info.keys():
         if device not in even_group_req:
-            even_group_req[device] = {}
+            even_group_req[device] = 0
         if device not in odd_group_req:
-            odd_group_req[device] = {}
+            odd_group_req[device] = 0
 
-        for group, gnodes in groups_info[device].items():
+        for group, gnodes in group_info[device].items():
             group_sum = 0
             for gnode in gnodes:
-                node = graph.nodes[gnode]['node']
+                node = graph.nodes[gnode]["node"]
                 for output_io in node.outputs.values():
                     group_sum += size_in_bytes(output_io.shape, output_io.dtype)
             if (group % 2) == 0:
@@ -238,34 +236,39 @@ def register_groups(graph: nx.DiGraph, alloc_map, config: Config) -> None:
     for device in group_info.keys():
         device_type, device_id = device
 
-        if (device_type == "gpu"):
+        if device_type == "gpu":
             alloc_map.register_gpu_workspace(
-                    config.model_id,device_id,"A",even_group_req[device])
-            alloc_map.register_gpu_workspace(config.model_id,device_id,"B",odd_group_req[device])
+                config.model_id, device_id, "A", even_group_req[device]
+            )
+            alloc_map.register_gpu_workspace(
+                config.model_id, device_id, "B", odd_group_req[device]
+            )
 
-    #device, workspace, alloc_name, shape, dtype
+    # device, workspace, alloc_name, shape, dtype
     for device in group_info.keys():
         device_type, device_id = device
-        for group, gnodes in groups_info[device].items():
+        for group, gnodes in group_info[device].items():
             ios_in_group = []
             for gnode in gnodes:
-                node = graph.nodes[gnode]['node']
+                node = graph.nodes[gnode]["node"]
                 for output_io in node.outputs.values():
-                    info_list.append(output_io)
+                    ios_in_group.append(output_io)
 
-            if (device_type == "gpu"):
+            if device_type == "gpu":
                 ws_name = ""
                 if (group % 2) == 0:
                     ws_name = "A"
                 else:
                     ws_name = "B"
 
-                alloc_map.register_gpu_ws_group(config.model_id,
-                        device_id,ws_name,ios_in_group)
+                alloc_map.register_gpu_ws_group(
+                    config.model_id, device_id, ws_name, ios_in_group
+                )
             else:
-                alloc_map.register_cpu_group(config.model_id,ios_in_group)
+                alloc_map.register_cpu_group(config.model_id, ios_in_group)
 
     return
+
 
 def shape_inference(graph: nx.DiGraph, alloc_map, config: Config) -> None:
 
@@ -400,6 +403,13 @@ def place(graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config) -
     cuda_devices = get_valid_cuda_devices()
     num_cuda = len(cuda_devices)
 
+    # add the generic head node to the graph
+    # connect it to the initial root node generated by frontend
+    graph.add_node(PNO_GRAPH_HEAD_ID)
+    graph.add_edge(PNO_GRAPH_HEAD_ID, 0)
+
+    graph.nodes[PNO_GRAPH_HEAD_ID]["node"] = Node(-1, ops.O2P_GRAPH_HEAD, {}, {}, {}, 0)
+
     for gnode in graph.nodes:
         node = graph.nodes[gnode]["node"]
         if num_cuda > 0 and node.operator in gpu_supported:
@@ -472,12 +482,6 @@ def opt_graph_split(
     graph: nx.DiGraph, alloc_map: Dict[str, np.ndarray], config: Config
 ) -> None:
 
-    # add the generic head node to the graph
-    # connect it to the initial root node generated by frontend
-    graph.add_node(PNO_GRAPH_HEAD_ID)
-    graph.add_edge(PNO_GRAPH_HEAD_ID, 0)
-
-    graph.nodes[PNO_GRAPH_HEAD_ID]["node"] = Node(-1, ops.O2P_GRAPH_HEAD, {}, {}, {}, 0)
 
     # need to rename and assign to the correct device
     cuda_devices = get_valid_cuda_devices()

@@ -16,7 +16,7 @@ class RandomDataset(Dataset):
         return self.max_len
 
 def gen_random_images(num):
-    return np.random.random((num, 3, 224, 224))
+    return np.random.random((num, 3, 224, 224)).astype(np.float32)
 
 
 def preprocess(img_data):
@@ -44,11 +44,8 @@ def get_test(s, e):
 
 
 def get_random(s, e):
-    raise NotImplementedError
     print(f"load: {s}-{e}")
-    batch_size = e - s
-    s = s % random_images.shape[0]
-    d = random_images[s:s+batch_size]
+    d = gen_random_images(e-s)
     return d
 
 

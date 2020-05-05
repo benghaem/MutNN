@@ -1,9 +1,16 @@
-from multiprocessing import Process, Queue
+import multiprocessing as mp
 from onnx2parla import onnx_frontend as frontend
 from onnx2parla.config import Config
 from onnx2parla.vision_dataloaders import get_random, nop_store
 import numpy as np
 import datetime
+from onnx2parla.memory import AllocMap
+import onnx2parla.backend as backend
+from onnx2parla.backend import debug_print_graph
+from onnx2parla.node import node_stringizer
+import networkx as nx
+import time
+import pprint
 
 def frontend_proc(cmd_q, stats_q, **kwargs):
 
@@ -16,7 +23,10 @@ def frontend_proc(cmd_q, stats_q, **kwargs):
         if (inp[0] in ["exit", "quit"]):
             cmd_q.put(("quit", None))
             run_proc = False
-        elif (inp[0] in ["new_graph"]):
+
+        elif (inp[0] in ["add"]):
+            if (len(inp) < 3):
+                inp = ["add", "test_models/one_stage_resnet.onnx", 2]
             # new_graph my_onnx_graph.onnx 2,3,4,5
             fname = inp[1]
             batch_size = int(inp[2])
@@ -38,34 +48,53 @@ def frontend_proc(cmd_q, stats_q, **kwargs):
                 stats_dict = stats_q.get_nowait()
                 stats_update_time = datetime.datetime.now()
             print("STATS @ " + str(stats_update_time))
-            print(stats_dict)
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(stats_dict)
 
 
-def pre_alloc_build():
+def build(graph, alloc_map, config):
 
-    pre_mp_passes = [backend.shape_inference,
+    alloc_map.register_new_model(config.model_id)
+
+    pre_populate = [backend.shape_inference,
                      backend.place,
-                     backend.copy_insertion]
+                     backend.copy_insertion,
+                     backend.register_statics,
+                     backend.build_groups,
+                     backend.register_groups]
 
-    # do all pre_mp_passes 
+    post_populate = [backend.populate_statics,
+                     backend.build_graph]
 
-    graph_req_size = backend.get_required_size()
+    for gpass in pre_populate:
+        gpass(graph, alloc_map, config)
 
-    return graph, info
+        if config.debug_passes:
+            print("---pass: {}---".format(gpass.__name__))
+            debug_print_graph(graph)
+            nx.write_gml(graph, gpass.__name__ + ".gml", node_stringizer)
 
+    #manage memory across all graphs
+    alloc_map.populate()
 
-def alloc_rebuild(all_graphs):
+    for gpass in post_populate:
+        gpass(graph, alloc_map, config)
 
-    alloc_priority = determine_alloc_priority(graph_req_sizes)
+        if config.debug_passes:
+            print("---pass: {}---".format(gpass.__name__))
+            debug_print_graph(graph)
+            nx.write_gml(graph, gpass.__name__ + ".gml", node_stringizer)
 
-    for graph in all_graphs:
-        backend.alloc_from_pool()??
-        backend.build_graph()
-
+    return graph
 
 
 
 def backend_proc(cmd_q, stats_q, **kwargs):
+
+    #IMPORTS TO MAKE MULTI-PROCESS CUPY WORK
+    active_devices = backend.get_valid_cuda_devices()
+
+    print("CUDA DEVICES: ", active_devices)
 
     #control
     run_proc = True
@@ -74,42 +103,47 @@ def backend_proc(cmd_q, stats_q, **kwargs):
     stats = {"num_graphs":0}
 
     #state
-    # graph_id : [(node, [deps ....]) ....]
-    dep_graphs = {}
-    # graph_id : [dependent on graph_ids]
-    dep_info = {}
-
     graphs = []
 
-    #MAKE BIG ALLOCATION
-
+    alloc_map = AllocMap(active_devices,
+                         1024 * (10**6),
+                         AllocMap.greedy_pack)
 
     while (run_proc):
-        if (not cmq_q.empty()):
+        if (not cmd_q.empty()):
             (cmd, args) = cmd_q.get()
             if (cmd == "add"):
                 graph, cfg = args
                 stats["num_graphs"] += 1
-                stats_q.put(stats)
 
                 # run the passes on the new model
-                multi_model.build(graph, cfg)
+                cfg.model_id = stats["num_graphs"]
+                graph = build(graph, alloc_map, cfg)
 
-                multi_model.update_memory
-
-
+                stats["deps"] = alloc_map.workspace_deps
+                stats["ws_size"] = alloc_map.get_workspace_size()
+                stats["ws_ptrs"] = alloc_map.get_workspace_ptrs()
+                stats["ws_stack"] = alloc_map.get_pack_strat().workspace_stack
+                #stats["static_size"] = alloc_map.get_static_size()
+                stats["free"] = alloc_map.get_free()
+                stats["used"] = alloc_map.get_used()
+                stats_q.put(stats)
             if (cmd == "quit"):
                 run_proc = False
 
+
         else:
+            time.sleep(1)
 
 
 
 if __name__ == "__main__":
-    cmd_q = Queue()
-    stats_q = Queue()
+    mp.set_start_method('spawn')
 
-    backend_p = Process(target=backend_proc, args=(cmd_q, stats_q))
+    cmd_q = mp.Queue()
+    stats_q = mp.Queue()
+
+    backend_p = mp.Process(target=backend_proc, args=(cmd_q, stats_q))
     backend_p.start()
 
     frontend_proc(cmd_q, stats_q)

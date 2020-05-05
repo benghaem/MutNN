@@ -32,18 +32,12 @@ def echo_store(arr):
     sm = sorted(zip(arr[0], range(len(arr[0]))), reverse=True)[0:5]
     logging.log(logging.INFO, f"stored: {sm}")
 
-
-def debug_print_graph(graph):
-    for node_id in graph.nodes:
-        node = graph.nodes[node_id]["node"]
-        node.pretty_print()
-
 def build(onnx_path, config):
     graph = frontend.from_onnx(onnx_path, config)
 
     amap = {}
     if config.debug_passes:
-        debug_print_graph(graph)
+        backend.debug_print_graph(graph)
 
     setup_passes = [backend.shape_inference,
                     backend.place]
@@ -70,7 +64,7 @@ def build(onnx_path, config):
 
         if config.debug_passes:
             print("---pass: {}---".format(opass.__name__))
-            debug_print_graph(graph)
+            backend.debug_print_graph(graph)
             nx.write_gml(graph, opass.__name__ + ".gml", node_stringizer)
 
     return Model(graph, config)
