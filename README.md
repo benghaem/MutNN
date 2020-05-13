@@ -1,12 +1,11 @@
-# ONNX2Parla
+# MutNN
 
-__WARNING: This is alpha software that relies on alpha software. Have fun!__
+__WARNING: This is alpha software. Have fun!__
 
-ONNX2Parla is an experimental ONNX runtime that uses
-[Parla](https://github.com/ut-parla/Parla.py) as a task queue.
-
-The system supports seamless multi-GPU graph execution on CUDA GPUs and provides
+MutNN is an experimental ONNX runtime that supports seamless multi-GPU graph execution on CUDA GPUs and provides
 baseline implementations of both model and data parallelism.
+
+V0.2: Adds support for multi-graph / multi-tenant NN execution!
 
 Developed by Benjamin Ghaemmaghami & Saurabh Gupta
 
