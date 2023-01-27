@@ -18,7 +18,7 @@ networkx==2.4
 ninja==1.9.0.post1
 numba==0.46.0
 numpy==1.17.4
-onnx==1.6.0
+onnx==1.13.0
 onnxruntime==1.0.0
 packaging==19.2
 -e git+https://github.com/ut-parla/Parla.py@a5309ddff6b045ac36cf3f8ae0e8a1750b72d50d#egg=parla
